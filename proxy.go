@@ -84,8 +84,6 @@ func (p *ProxyService) StartHTTPServer() error {
 }
 
 func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	p.log.Debug("request received from beacon node")
-
 	numSuccessRequestsToBuilder := 0
 	bodyBytes, err := ioutil.ReadAll(req.Body)
 	if err != nil {
@@ -93,8 +91,10 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
+	p.log.WithField("body", string(bodyBytes)).Debug("request received from beacon node")
 	var mu sync.Mutex
-
+	var responseHeader http.Header
+	var responseBody io.ReadCloser
 	// Call the builders
 	var wg sync.WaitGroup
 	for _, entry := range p.proxyEntries {
@@ -116,8 +116,8 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			log.WithField("url", url.String()).Debug("response received from builder")
 			// write first successful response to the client
 			if numSuccessRequestsToBuilder == 0 {
-				copyHeader(w.Header(), resp.Header)
-				io.Copy(w, resp.Body)
+				responseHeader = resp.Header
+				responseBody = resp.Body
 			}
 			mu.Lock()
 			defer mu.Unlock()
@@ -127,7 +127,10 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// Wait for all requests to complete...
 	wg.Wait()
-	if numSuccessRequestsToBuilder == 0 {
+	if numSuccessRequestsToBuilder != 0 {
+		copyHeader(w.Header(), responseHeader)
+		io.Copy(w, responseBody)
+	} else {
 		http.Error(w, errNoSuccessfulBuilderResponse.Error(), http.StatusBadGateway)
 	}
 }

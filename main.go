@@ -63,10 +63,10 @@ func main() {
 
 	// Create a new proxy service.
 	opts := ProxyServiceOpts{
-		ListenAddr:       *listenAddr,
-		Builders:         builders,
-		BuilderTimeout:   builderTimeout,
-		Log:              log,
+		ListenAddr:     *listenAddr,
+		Builders:       builders,
+		BuilderTimeout: builderTimeout,
+		Log:            log,
 	}
 	proxyService, err := NewProxyService(opts)
 	if err != nil {
