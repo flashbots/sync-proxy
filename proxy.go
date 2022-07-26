@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"io"
 	"io/ioutil"
@@ -18,7 +19,16 @@ var (
 	errServerAlreadyRunning        = errors.New("server already running")
 	errNoBuilders                  = errors.New("no builders specified")
 	errNoSuccessfulBuilderResponse = errors.New("no successful builder response")
+
+	newPayload = "engine_newPayloadV1"
+	fcU = "engine_forkchoiceUpdatedV1"
 )
+
+type ProxyResponse struct {
+	Header http.Header
+	Body   []byte
+	URL		*url.URL
+}
 
 // ProxyEntry is an entry consisting of a builder URL and a proxy
 type ProxyEntry struct {
@@ -84,17 +94,31 @@ func (p *ProxyService) StartHTTPServer() error {
 }
 
 func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	numSuccessRequestsToBuilder := 0
 	bodyBytes, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		p.log.WithError(err).Error("failed to read request body")
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
-	p.log.WithField("body", string(bodyBytes)).Debug("request received from beacon node")
+
+	var requestJSON JSONRPCRequest
+	if err := json.Unmarshal(bodyBytes, &requestJSON); err != nil {
+		p.log.WithError(err).Error("failed to decode request body json")
+		w.WriteHeader(http.StatusInternalServerError)
+		return
+	}
+
+	p.log.WithFields(logrus.Fields{
+		"method": requestJSON.Method,
+		"id":     requestJSON.ID,
+	}).Debug("request received from beacon node")
+
+	numSuccessRequestsToBuilder := 0
 	var mu sync.Mutex
-	var responseHeader http.Header
-	var responseBody io.ReadCloser
+
+	var responses []ProxyResponse
+	var primaryReponse ProxyResponse
+
 	// Call the builders
 	var wg sync.WaitGroup
 	for _, entry := range p.proxyEntries {
@@ -103,22 +127,33 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			defer wg.Done()
 			url := entry.BuilderURL
 			proxy := entry.Proxy
-			log.WithField("url", url.String()).Debug("sending request to builder")
-			outreq := req.Clone(req.Context())
-			outreq.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
-			proxy.Director(outreq)
-			resp, err := proxy.Transport.RoundTrip(outreq)
+			resp, err := SendProxyRequest(req, proxy, bodyBytes)
 			if err != nil {
 				log.WithError(err).WithField("url", url.String()).Error("error sending request to builder")
+			}
+
+			responseBytes, err := ioutil.ReadAll(resp.Body)
+			if err != nil {
+				p.log.WithError(err).Error("failed to read response body")
 				return
 			}
-			defer outreq.Body.Close()
-			log.WithField("url", url.String()).Debug("response received from builder")
-			// write first successful response to the client
-			if numSuccessRequestsToBuilder == 0 {
-				responseHeader = resp.Header
-				responseBody = resp.Body
+			responses = append(responses, ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url})
+
+			p.log.WithFields(logrus.Fields{
+				"method": requestJSON.Method,
+				"id":     requestJSON.ID,
+				"response": string(responseBytes),
+				"url":    url.String(),
+			}).Debug("response received from builder")
+
+			// Use response from first EL endpoint specificed and fallback if response not found
+			if (numSuccessRequestsToBuilder == 0) {
+				primaryReponse = ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url}
 			}
+			if (url.String() == p.proxyEntries[0].BuilderURL.String()) {
+				primaryReponse = ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url}
+			}
+
 			mu.Lock()
 			defer mu.Unlock()
 			numSuccessRequestsToBuilder++
@@ -127,18 +162,77 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// Wait for all requests to complete...
 	wg.Wait()
+
+	if isEngineRequest(requestJSON.Method) {
+		p.maybeLogReponseDifferences(requestJSON.Method, primaryReponse, responses)
+	}
+
 	if numSuccessRequestsToBuilder != 0 {
-		copyHeader(w.Header(), responseHeader)
-		io.Copy(w, responseBody)
+		copyHeader(w.Header(), primaryReponse.Header)
+		io.Copy(w, ioutil.NopCloser(bytes.NewBuffer(primaryReponse.Body)))
 	} else {
 		http.Error(w, errNoSuccessfulBuilderResponse.Error(), http.StatusBadGateway)
 	}
 }
 
-func copyHeader(dst, src http.Header) {
-	for k, vv := range src {
-		for _, v := range vv {
-			dst.Add(k, v)
+func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse ProxyResponse, responses []ProxyResponse) {
+	expectedStatus, err := extractStatus(method, primaryResponse.Body)
+	if err != nil {
+		p.log.WithError(err).WithFields(logrus.Fields{
+			"method": method,
+			"url": primaryResponse.URL.String(),
+		}).Error("error reading status from primary EL response")
+	}
+
+	if expectedStatus == "" {
+		return
+	}
+
+	for _, response := range responses {
+		if response.URL.String() == primaryResponse.URL.String() {
+			continue
 		}
+
+		status, err := extractStatus(method, response.Body)
+		if err != nil {
+			p.log.WithError(err).WithFields(logrus.Fields{
+				"method": method,
+				"url": primaryResponse.URL.String(),
+			}).Error("error reading status from EL response")
+		}
+
+		if (status != expectedStatus) {
+			p.log.WithFields(logrus.Fields{
+				"primaryStatus": expectedStatus,
+				"secondaryStatus": status,
+				"primaryUrl": primaryResponse.URL.String(),
+				"secondaryUrl": response.URL.String(),
+			}).Info("found difference in EL responses")
+		}
+	}
+}
+
+func extractStatus(method string, response []byte) (string, error) {
+	var responseJSON JSONRPCResponse
+
+	switch method {
+	case newPayload:
+		responseJSON.Result = new(PayloadStatusV1)
+	case fcU:
+		responseJSON.Result = new(ForkChoiceResponse)
+	default:
+	}
+	
+	if err := json.Unmarshal(response, &responseJSON); err != nil {
+		return "", err
+	}	
+
+	switch v := responseJSON.Result.(type) {
+	case *ForkChoiceResponse:
+		return v.PayloadStatus.Status, nil
+	case *PayloadStatusV1:
+		return v.Status, nil
+	default:
+		return "", nil // not interested in other engine api calls
 	}
 }
