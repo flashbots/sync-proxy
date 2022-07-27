@@ -140,6 +140,9 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 			defer resp.Body.Close()
 
+			mu.Lock()
+			defer mu.Unlock()
+			
 			responses = append(responses, ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url})
 
 			p.log.WithFields(logrus.Fields{
@@ -157,8 +160,6 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				primaryReponse = ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url}
 			}
 
-			mu.Lock()
-			defer mu.Unlock()
 			numSuccessRequestsToBuilder++
 		}(entry)
 	}
