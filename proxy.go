@@ -111,7 +111,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	p.log.WithFields(logrus.Fields{
 		"method": requestJSON.Method,
 		"id":     requestJSON.ID,
-	}).Debug("request received from beacon node")
+	}).Info("request received from beacon node")
 
 	numSuccessRequestsToBuilder := 0
 	var mu sync.Mutex
@@ -130,6 +130,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			resp, err := SendProxyRequest(req, proxy, bodyBytes)
 			if err != nil {
 				log.WithError(err).WithField("url", url.String()).Error("error sending request to builder")
+				return
 			}
 
 			responseBytes, err := ioutil.ReadAll(resp.Body)
@@ -137,6 +138,8 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				p.log.WithError(err).Error("failed to read response body")
 				return
 			}
+			defer resp.Body.Close()
+
 			responses = append(responses, ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url})
 
 			p.log.WithFields(logrus.Fields{
@@ -163,11 +166,10 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// Wait for all requests to complete...
 	wg.Wait()
 
-	if isEngineRequest(requestJSON.Method) {
-		p.maybeLogReponseDifferences(requestJSON.Method, primaryReponse, responses)
-	}
-
 	if numSuccessRequestsToBuilder != 0 {
+		if isEngineRequest(requestJSON.Method) {
+			p.maybeLogReponseDifferences(requestJSON.Method, primaryReponse, responses)
+		}
 		copyHeader(w.Header(), primaryReponse.Header)
 		io.Copy(w, ioutil.NopCloser(bytes.NewBuffer(primaryReponse.Body)))
 	} else {

@@ -12,7 +12,6 @@ func SendProxyRequest(req *http.Request, proxy *httputil.ReverseProxy, bodyBytes
 	// Copy and redirect request to EL endpoint
 	proxyReq := req.Clone(req.Context())
 	proxyReq.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
-	defer proxyReq.Body.Close()
 
 	proxy.Director(proxyReq)
 
