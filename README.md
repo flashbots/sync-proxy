@@ -1,16 +1,32 @@
 # go-template
 
-[![Test status](https://github.com/flashbots/go-template/workflows/Checks/badge.svg)](https://github.com/flashbots/go-template/actions?query=workflow%3A%22Checks%22)
+[![Goreport status](https://goreportcard.com/badge/github.com/flashbots/builder-proxy)](https://goreportcard.com/report/github.com/flashbots/builder-proxy)
+[![Test status](https://github.com/flashbots/builder-proxy/workflows/Checks/badge.svg)](https://github.com/flashbots/builder-proxy/actions?query=workflow%3A%22Checks%22)
 
-Starting point for new Go projects:
+Flashbots internal proxy to allow redundant execution client (EL) state sync post merge.
 
-* Entry file [`main.go`](https://github.com/flashbots/go-template/blob/main/main.go)
-* Logging setup using the Ethereum logger (with debug and json logging options)
-* Linting (with lint, go vet and staticcheck) & tests
-* GitHub Workflow for linting and testing
-* [`Makefile`](https://github.com/flashbots/go-template/blob/main/Makefile)
-* Setup for building and publishing Docker images
+* Runs a proxy server that proxies requests from a beacon node (BN) to multiple other execution clients
+* Proxies requests from BN to other proxies to achieve redundancy with requests from multiple BNs
 
-For public projects also take a look at https://github.com/flashbots/flashbots-repository-template
+More Information:
 
-We also have a repository for common Go utilities: https://github.com/flashbots/go-utils
+* https://www.notion.so/flashbots/EL-BN-state-sync-e0dfc2b8d615474a815da55aa5c4de17
+
+## Getting Started
+
+Run a BN pointing to the proxy (default is `localhost:25590`). Run the proxy with multiple EL endpoints specified (make sure to point to the authenticated port). 
+
+```bash
+git clone https://github.com/flashbots/builder-proxy.git
+cd builder-proxy
+make build
+
+# Show the help
+./builder-proxy -help
+```
+
+To run (with EL endpoints at `localhost:8551` and `localhost:8552`):
+
+```
+./builder-proxy -builders="localhost:8551,localhost:8552"
+```
