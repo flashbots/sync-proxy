@@ -1,5 +1,5 @@
 GIT_VER := $(shell git describe --tags --always --dirty="-dev")
-# ECR_URI := 223847889945.dkr.ecr.us-east-2.amazonaws.com/builder-proxy-name
+ECR_URI := 223847889945.dkr.ecr.us-east-2.amazonaws.com/builder-proxy-name
 
 all: clean build
 
@@ -34,7 +34,7 @@ cover-html:
 	unlink /tmp/go-sim-lb.cover.tmp
 
 build-for-docker:
-	CGO_ENABLED=0 GOOS=linux go build -ldflags "-X main.version=${GIT_VER}" -v -o builder-proxy main.go
+	GOOS=linux go build -ldflags "-X main.version=${GIT_VER}" -v -o builder-proxy .
 
 docker-image:
 	DOCKER_BUILDKIT=1 docker build . -t builder-proxy
