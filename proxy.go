@@ -6,6 +6,7 @@ import (
 	"errors"
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
@@ -21,19 +22,20 @@ var (
 	errNoSuccessfulBuilderResponse = errors.New("no successful builder response")
 
 	newPayload = "engine_newPayloadV1"
-	fcU = "engine_forkchoiceUpdatedV1"
+	fcU        = "engine_forkchoiceUpdatedV1"
 )
 
-type ProxyResponse struct {
-	Header http.Header
-	Body   []byte
-	URL		*url.URL
+type BuilderResponse struct {
+	Header     http.Header
+	Body       []byte
+	URL        *url.URL
+	StatusCode int
 }
 
-// ProxyEntry is an entry consisting of a builder URL and a proxy
+// ProxyEntry is an entry consisting of a URL and a proxy
 type ProxyEntry struct {
-	BuilderURL *url.URL
-	Proxy      *httputil.ReverseProxy
+	URL   *url.URL
+	Proxy *httputil.ReverseProxy
 }
 
 // ProxyServiceOpts contains options for the ProxyService
@@ -41,15 +43,18 @@ type ProxyServiceOpts struct {
 	ListenAddr     string
 	Builders       []*url.URL
 	BuilderTimeout time.Duration
+	Proxies        []*url.URL
+	ProxyTimeout   time.Duration
 	Log            *logrus.Entry
 }
 
 // ProxyService is a service that proxies requests from beacon node to builders
 type ProxyService struct {
-	listenAddr   string
-	srv          *http.Server
-	proxyEntries []*ProxyEntry
-	log          *logrus.Entry
+	listenAddr     string
+	srv            *http.Server
+	builderEntries []*ProxyEntry
+	proxyEntries   []*ProxyEntry
+	log            *logrus.Entry
 }
 
 // NewProxyService creates a new ProxyService
@@ -58,20 +63,23 @@ func NewProxyService(opts ProxyServiceOpts) (*ProxyService, error) {
 		return nil, errNoBuilders
 	}
 
-	var proxyEntries []*ProxyEntry
+	var builderEntries []*ProxyEntry
 	for _, builder := range opts.Builders {
-		proxy := httputil.NewSingleHostReverseProxy(builder)
-		proxy.Transport = http.DefaultTransport
-		proxyEntries = append(proxyEntries, &ProxyEntry{
-			BuilderURL: builder,
-			Proxy:      proxy,
-		})
+		entry := buildProxyEntry(builder, opts.BuilderTimeout)
+		builderEntries = append(builderEntries, &entry)
+	}
+
+	var proxyEntries []*ProxyEntry
+	for _, proxy := range opts.Proxies {
+		entry := buildProxyEntry(proxy, opts.ProxyTimeout)
+		proxyEntries = append(proxyEntries, &entry)
 	}
 
 	return &ProxyService{
-		listenAddr:   opts.ListenAddr,
-		proxyEntries: proxyEntries,
-		log:          opts.Log,
+		listenAddr:     opts.ListenAddr,
+		builderEntries: builderEntries,
+		proxyEntries:   proxyEntries,
+		log:            opts.Log,
 	}, nil
 }
 
@@ -94,6 +102,14 @@ func (p *ProxyService) StartHTTPServer() error {
 }
 
 func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	// ignore responses forwarded from other proxies unless
+	// there is an issue with the beacon node request
+	if isRequestFromProxy(req) {
+		p.log.Debug("request received from another proxy")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	bodyBytes, err := ioutil.ReadAll(req.Body)
 	if err != nil {
 		p.log.WithError(err).Error("failed to read request body")
@@ -116,16 +132,16 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	numSuccessRequestsToBuilder := 0
 	var mu sync.Mutex
 
-	var responses []ProxyResponse
-	var primaryReponse ProxyResponse
+	var responses []BuilderResponse
+	var primaryReponse BuilderResponse
 
 	// Call the builders
 	var wg sync.WaitGroup
-	for _, entry := range p.proxyEntries {
+	for _, entry := range p.builderEntries {
 		wg.Add(1)
 		go func(entry *ProxyEntry) {
 			defer wg.Done()
-			url := entry.BuilderURL
+			url := entry.URL
 			proxy := entry.Proxy
 			resp, err := SendProxyRequest(req, proxy, bodyBytes)
 			if err != nil {
@@ -142,25 +158,38 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 			mu.Lock()
 			defer mu.Unlock()
-			
-			responses = append(responses, ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url})
+
+			responses = append(responses, BuilderResponse{Header: resp.Header, Body: responseBytes, URL: url, StatusCode: resp.StatusCode})
 
 			p.log.WithFields(logrus.Fields{
-				"method": requestJSON.Method,
-				"id":     requestJSON.ID,
+				"method":   requestJSON.Method,
+				"id":       requestJSON.ID,
 				"response": string(responseBytes),
-				"url":    url.String(),
+				"url":      url.String(),
 			}).Debug("response received from builder")
 
 			// Use response from first EL endpoint specificed and fallback if response not found
-			if (numSuccessRequestsToBuilder == 0) {
-				primaryReponse = ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url}
+			if numSuccessRequestsToBuilder == 0 {
+				primaryReponse = BuilderResponse{Header: resp.Header, Body: responseBytes, URL: url, StatusCode: resp.StatusCode}
 			}
-			if (url.String() == p.proxyEntries[0].BuilderURL.String()) {
-				primaryReponse = ProxyResponse{Header: resp.Header, Body: responseBytes, URL: url}
+			if url.String() == p.builderEntries[0].URL.String() {
+				primaryReponse = BuilderResponse{Header: resp.Header, Body: responseBytes, URL: url, StatusCode: resp.StatusCode}
 			}
 
 			numSuccessRequestsToBuilder++
+		}(entry)
+	}
+
+	// call other proxies to forward requests from other beacon nodes
+	for _, entry := range p.proxyEntries {
+		wg.Add(1)
+		go func(entry *ProxyEntry) {
+			defer wg.Done()
+			_, err := SendProxyRequest(req, entry.Proxy, bodyBytes)
+			if err != nil {
+				log.WithError(err).WithField("url", entry.URL.String()).Error("error sending request to proxy")
+				return
+			}
 		}(entry)
 	}
 
@@ -172,18 +201,19 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			p.maybeLogReponseDifferences(requestJSON.Method, primaryReponse, responses)
 		}
 		copyHeader(w.Header(), primaryReponse.Header)
+		w.WriteHeader(primaryReponse.StatusCode)
 		io.Copy(w, ioutil.NopCloser(bytes.NewBuffer(primaryReponse.Body)))
 	} else {
 		http.Error(w, errNoSuccessfulBuilderResponse.Error(), http.StatusBadGateway)
 	}
 }
 
-func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse ProxyResponse, responses []ProxyResponse) {
+func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse BuilderResponse, responses []BuilderResponse) {
 	expectedStatus, err := extractStatus(method, primaryResponse.Body)
 	if err != nil {
 		p.log.WithError(err).WithFields(logrus.Fields{
 			"method": method,
-			"url": primaryResponse.URL.String(),
+			"url":    primaryResponse.URL.String(),
 		}).Error("error reading status from primary EL response")
 	}
 
@@ -200,16 +230,16 @@ func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse
 		if err != nil {
 			p.log.WithError(err).WithFields(logrus.Fields{
 				"method": method,
-				"url": primaryResponse.URL.String(),
+				"url":    primaryResponse.URL.String(),
 			}).Error("error reading status from EL response")
 		}
 
-		if (status != expectedStatus) {
+		if status != expectedStatus {
 			p.log.WithFields(logrus.Fields{
-				"primaryStatus": expectedStatus,
+				"primaryStatus":   expectedStatus,
 				"secondaryStatus": status,
-				"primaryUrl": primaryResponse.URL.String(),
-				"secondaryUrl": response.URL.String(),
+				"primaryUrl":      primaryResponse.URL.String(),
+				"secondaryUrl":    response.URL.String(),
 			}).Info("found difference in EL responses")
 		}
 	}
@@ -225,10 +255,10 @@ func extractStatus(method string, response []byte) (string, error) {
 		responseJSON.Result = new(ForkChoiceResponse)
 	default:
 	}
-	
+
 	if err := json.Unmarshal(response, &responseJSON); err != nil {
 		return "", err
-	}	
+	}
 
 	switch v := responseJSON.Result.(type) {
 	case *ForkChoiceResponse:
@@ -238,4 +268,21 @@ func extractStatus(method string, response []byte) (string, error) {
 	default:
 		return "", nil // not interested in other engine api calls
 	}
+}
+
+func buildProxyEntry(proxyURL *url.URL, timeout time.Duration) ProxyEntry {
+	proxy := httputil.NewSingleHostReverseProxy(proxyURL)
+	proxy.Transport = &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   timeout,
+			KeepAlive: timeout,
+		}).DialContext,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	return ProxyEntry{Proxy: proxy, URL: proxyURL}
 }
