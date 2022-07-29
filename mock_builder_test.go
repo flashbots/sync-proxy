@@ -11,7 +11,7 @@ import (
 
 func Test_mockBuilder(t *testing.T) {
 	t.Run("test payload", func(t *testing.T) {
-		builder := newMockBuilder(t)
+		builder := newMockServer(t)
 
 		builder.Response = []byte(mockNewPayloadResponseValid)
 

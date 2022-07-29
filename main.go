@@ -15,17 +15,19 @@ var (
 	version = "dev" // is set during build process
 
 	// Default values
-	defaultLogLevel         = getEnv("LOG_LEVEL", "info")
-	defaultLogJSON          = os.Getenv("LOG_JSON") != ""
-	defaultListenAddr       = getEnv("PROXY_LISTEN_ADDR", "localhost:25590")
-	defaultBuilderTimeoutMs = getEnvInt("BUILDER_TIMEOUT_MS", 2000) // timeout for all the requests to the builders
+	defaultLogLevel   = getEnv("LOG_LEVEL", "info")
+	defaultLogJSON    = os.Getenv("LOG_JSON") != ""
+	defaultListenAddr = getEnv("PROXY_LISTEN_ADDR", "localhost:25590")
+	defaultTimeoutMs  = getEnvInt("BUILDER_TIMEOUT_MS", 2000) // timeout for all the requests to the builders
 
 	// Flags
 	logJSON          = flag.Bool("json", defaultLogJSON, "log in JSON format instead of text")
 	logLevel         = flag.String("loglevel", defaultLogLevel, "log-level: trace, debug, info, warn/warning, error, fatal, panic")
 	listenAddr       = flag.String("addr", defaultListenAddr, "listen-address for builder proxy server")
 	builderURLs      = flag.String("builders", "", "builder urls - single entry or comma-separated list (scheme://host)")
-	builderTimeoutMs = flag.Int("request-timeout", defaultBuilderTimeoutMs, "timeout for requests to a builder [ms]")
+	builderTimeoutMs = flag.Int("request-timeout", defaultTimeoutMs, "timeout for requests to a builder [ms]")
+	proxyURLs        = flag.String("proxies", "", "proxy urls - other proxies to forward BN requests to (scheme://host)")
+	proxyTimeoutMs   = flag.Int("proxy-request-timeout", defaultTimeoutMs, "timeout for redundant beacon node requests to another proxy [ms]")
 )
 
 var log = logrus.WithField("module", "builder-proxy")
@@ -53,7 +55,7 @@ func main() {
 
 	log.Infof("builder-proxy %s", version)
 
-	builders := parseBuilderURLs(*builderURLs)
+	builders := parseURLs(*builderURLs)
 	if len(builders) == 0 {
 		log.Fatal("No builder urls specified")
 	}
@@ -61,13 +63,21 @@ func main() {
 
 	builderTimeout := time.Duration(*builderTimeoutMs) * time.Millisecond
 
+	proxies := parseURLs(*proxyURLs)
+	log.WithField("proxies", proxies).Infof("using %d proxies", len(proxies))
+
+	proxyTimeout := time.Duration(*proxyTimeoutMs) * time.Millisecond
+
 	// Create a new proxy service.
 	opts := ProxyServiceOpts{
 		ListenAddr:     *listenAddr,
 		Builders:       builders,
 		BuilderTimeout: builderTimeout,
+		Proxies:        proxies,
+		ProxyTimeout:   proxyTimeout,
 		Log:            log,
 	}
+
 	proxyService, err := NewProxyService(opts)
 	if err != nil {
 		log.WithError(err).Fatal("failed creating the server")
@@ -94,20 +104,20 @@ func getEnvInt(key string, defaultValue int) int {
 	return defaultValue
 }
 
-func parseBuilderURLs(builderURLs string) []*url.URL {
+func parseURLs(urls string) []*url.URL {
 	ret := []*url.URL{}
-	for _, entry := range strings.Split(builderURLs, ",") {
-		builderURL := strings.TrimSpace(entry)
+	for _, entry := range strings.Split(urls, ",") {
+		rawURL := strings.TrimSpace(entry)
 
 		// Add protocol scheme prefix if it does not exist.
-		if !strings.HasPrefix(builderURL, "http") {
-			builderURL = "http://" + builderURL
+		if !strings.HasPrefix(rawURL, "http") {
+			rawURL = "http://" + rawURL
 		}
 
-		// Parse the provided builder's URL.
-		url, err := url.ParseRequestURI(builderURL)
+		// Parse the provided URL.
+		url, err := url.ParseRequestURI(rawURL)
 		if err != nil {
-			log.WithError(err).WithField("builderURL", entry).Fatal("Invalid builder URL")
+			log.WithError(err).WithField("url", entry).Fatal("Invalid URL")
 		}
 
 		ret = append(ret, url)

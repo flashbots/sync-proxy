@@ -16,14 +16,14 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
-// mockBuilder is used to fake a builder's behavior.
-type mockBuilder struct {
+// mockServer is used to fake a builder's / proxy's behavior.
+type mockServer struct {
 	// Used to panic if impossible error happens
 	t *testing.T
 
 	ProxyEntry ProxyEntry
 
-	// Used to count each engine made to the builder, either if it fails or not, for each method
+	// Used to count each engine made to the service, either if it fails or not, for each method
 	mu           sync.Mutex
 	requestCount map[string]int
 
@@ -35,23 +35,23 @@ type mockBuilder struct {
 	ResponseDelay time.Duration
 }
 
-// newMockBuilder creates a mocked builder
-func newMockBuilder(t *testing.T) *mockBuilder {
-	builder := &mockBuilder{t: t, requestCount: make(map[string]int)}
+// newMockServer creates a mocked service like builder / proxy
+func newMockServer(t *testing.T) *mockServer {
+	service := &mockServer{t: t, requestCount: make(map[string]int)}
 
 	// Initialize server
-	builder.Server = httptest.NewServer(builder.getRouter())
+	service.Server = httptest.NewServer(service.getRouter())
 
-	url, err := url.Parse(builder.Server.URL)
+	url, err := url.Parse(service.Server.URL)
 	require.NoError(t, err)
-	builder.ProxyEntry = ProxyEntry{BuilderURL: url, Proxy: httputil.NewSingleHostReverseProxy(url)}
+	service.ProxyEntry = ProxyEntry{URL: url, Proxy: httputil.NewSingleHostReverseProxy(url)}
 	require.NoError(t, err)
 
-	return builder
+	return service
 }
 
 // getRouter registers the backend, apply the test middleware and returns the router
-func (m *mockBuilder) getRouter() http.Handler {
+func (m *mockServer) getRouter() http.Handler {
 	// Create router.
 	r := mux.NewRouter()
 
@@ -65,7 +65,7 @@ func (m *mockBuilder) getRouter() http.Handler {
 }
 
 // newTestMiddleware creates a middleware which increases the Request counter and creates a fake delay for the response
-func (m *mockBuilder) newTestMiddleware(next http.Handler) http.Handler {
+func (m *mockServer) newTestMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(
 		func(w http.ResponseWriter, r *http.Request) {
 			// Request counter
@@ -80,7 +80,7 @@ func (m *mockBuilder) newTestMiddleware(next http.Handler) http.Handler {
 			m.requestCount[req.Method]++
 
 			r.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
-			
+
 			m.mu.Unlock()
 
 			// Artificial Delay
@@ -94,7 +94,7 @@ func (m *mockBuilder) newTestMiddleware(next http.Handler) http.Handler {
 }
 
 // GetRequestCount returns the number of requests made to an api method
-func (m *mockBuilder) GetRequestCount(method string) int {
+func (m *mockServer) GetRequestCount(method string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.requestCount[method]

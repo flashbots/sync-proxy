@@ -14,7 +14,7 @@ More Information:
 
 ## Getting Started
 
-Run a BN pointing to the proxy (default is `localhost:25590`). Run the proxy with multiple EL endpoints specified (make sure to point to the authenticated port). 
+Run a BN pointing to the proxy (default is `localhost:25590`). To run with multiple ELs running, run the proxy specifying the EL endpoints (make sure to point to the authenticated port). 
 
 ```bash
 git clone https://github.com/flashbots/builder-proxy.git
@@ -25,8 +25,10 @@ make build
 ./builder-proxy -help
 ```
 
-To run (with EL endpoints at `localhost:8551` and `localhost:8552`):
+You can also run multiple BNs with redundant BN requests by running multiple proxies that proxy requests between each other.
+
+To run with EL endpoint and / or multiple proxies:
 
 ```
-./builder-proxy -builders="localhost:8551,localhost:8552"
+./builder-proxy -builders="localhost:8551,localhost:8552" -proxies="localhost:25591"
 ```

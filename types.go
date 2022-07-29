@@ -11,17 +11,17 @@ type JSONRPCRequest struct {
 
 type JSONRPCResponse struct {
 	JSONRPC string `json:"jsonrpc"`
-	ID int		`json:"id"`
-	Result any	`json:"result"`
+	ID      int    `json:"id"`
+	Result  any    `json:"result"`
 }
 
 // PayloadID is an identifier of the payload build process
 type PayloadID [8]byte
 
 type PayloadStatusV1 struct {
-	Status          string       `json:"status"`
+	Status          string      `json:"status"`
 	LatestValidHash *types.Hash `json:"latestValidHash"`
-	ValidationError *string      `json:"validationError"`
+	ValidationError *string     `json:"validationError"`
 }
 
 type ForkChoiceResponse struct {
