@@ -182,9 +182,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	// call other proxies to forward requests from other beacon nodes
 	for _, entry := range p.proxyEntries {
-		wg.Add(1)
 		go func(entry *ProxyEntry) {
-			defer wg.Done()
 			_, err := SendProxyRequest(req, entry.Proxy, bodyBytes)
 			if err != nil {
 				log.WithError(err).WithField("url", entry.URL.String()).Error("error sending request to proxy")
