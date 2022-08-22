@@ -3,7 +3,7 @@ package main
 import (
 	"bytes"
 	"encoding/json"
-	"io/ioutil"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -71,7 +71,7 @@ func (m *mockServer) newTestMiddleware(next http.Handler) http.Handler {
 			// Request counter
 			m.mu.Lock()
 
-			bodyBytes, err := ioutil.ReadAll(r.Body)
+			bodyBytes, err := io.ReadAll(r.Body)
 			require.NoError(m.t, err)
 
 			var req JSONRPCRequest
@@ -79,7 +79,7 @@ func (m *mockServer) newTestMiddleware(next http.Handler) http.Handler {
 			require.NoError(m.t, err)
 			m.requestCount[req.Method]++
 
-			r.Body = ioutil.NopCloser(bytes.NewBuffer(bodyBytes))
+			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 			m.mu.Unlock()
 
