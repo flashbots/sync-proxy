@@ -43,11 +43,11 @@ func appendHostToXForwardHeader(header http.Header, host string) {
 	header.Set("X-Forwarded-For", host)
 }
 
-func isRequestFromProxy(req *http.Request) bool {
-	// check if request is from a proxy url
-	forwardedFrom := req.Header["X-Forwarded-For"]
-	return len(forwardedFrom) != 0
-}
+// func isRequestFromProxy(req *http.Request) bool {
+// 	// check if request is from a proxy url
+// 	forwardedFrom := req.Header["X-Forwarded-For"]
+// 	return len(forwardedFrom) != 0
+// }
 
 func isEngineRequest(method string) bool {
 	return strings.HasPrefix(method, "engine_")
