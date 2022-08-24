@@ -4,7 +4,6 @@ go 1.18
 
 require (
 	github.com/davecgh/go-spew v1.1.1 // indirect
-	github.com/ethereum/go-ethereum v1.10.17 // indirect
 	github.com/ferranbt/fastssz v0.1.1 // indirect
 	github.com/klauspost/cpuid/v2 v2.0.12 // indirect
 	github.com/minio/sha256-simd v1.0.0 // indirect
@@ -17,6 +16,7 @@ require (
 )
 
 require (
+	github.com/ethereum/go-ethereum v1.10.17
 	github.com/flashbots/go-boost-utils v0.3.2
 	github.com/gorilla/mux v1.8.0
 	github.com/sirupsen/logrus v1.8.1

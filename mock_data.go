@@ -1,6 +1,19 @@
 package main
 
 var (
+	mockPayloadAttributeRequest = `{
+		"jsonrpc": "2.0",
+		"method": "builder_payloadAttributes",
+		"params":[
+			{
+				"timestamp":"0x6303c7bc",
+				"prevRandao":"0xc37d470e40330c070aa426bed9281ea6cf5442bbc089bc477df3f6f5ce0cbfe0",
+				"slot":1182052,
+				"blockHash":"0x1056a5902daf6b659010a1e25347d8ee9a912329db045df0afa0504a284fa5c3"
+			}
+		],
+		"id": 1
+	}`
 	mockNewPayloadRequest = `{
 		"jsonrpc": "2.0",
 		"method": "engine_newPayloadV1",
