@@ -2,10 +2,10 @@ package main
 
 import (
 	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"errors"
 	"io"
-	"io/ioutil"
 	"net"
 	"net/http"
 	"net/http/httputil"
@@ -110,7 +110,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	bodyBytes, err := ioutil.ReadAll(req.Body)
+	bodyBytes, err := io.ReadAll(req.Body)
 	if err != nil {
 		p.log.WithError(err).Error("failed to read request body")
 		w.WriteHeader(http.StatusInternalServerError)
@@ -149,7 +149,16 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 				return
 			}
 
-			responseBytes, err := ioutil.ReadAll(resp.Body)
+			reader := resp.Body
+			if (!resp.Uncompressed && resp.Header.Get("Content-Encoding") == "gzip") {
+				reader, err = gzip.NewReader(resp.Body)
+				if err != nil {
+					p.log.WithError(err).Error("failed to decompress response body")
+					return
+				}
+			}
+
+			responseBytes, err := io.ReadAll(reader)
 			if err != nil {
 				p.log.WithError(err).Error("failed to read response body")
 				return
@@ -200,7 +209,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}
 		copyHeader(w.Header(), primaryReponse.Header)
 		w.WriteHeader(primaryReponse.StatusCode)
-		io.Copy(w, ioutil.NopCloser(bytes.NewBuffer(primaryReponse.Body)))
+		io.Copy(w, io.NopCloser(bytes.NewBuffer(primaryReponse.Body)))
 	} else {
 		http.Error(w, errNoSuccessfulBuilderResponse.Error(), http.StatusBadGateway)
 	}
