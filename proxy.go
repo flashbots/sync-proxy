@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -104,14 +105,23 @@ func (p *ProxyService) StartHTTPServer() error {
 		return errServerAlreadyRunning
 	}
 
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
 	// Start background task to make sure we don't get stuck
 	// with a beacon node that stop sending requests
 	go func() {
+	timer:
 		for {
-			<-p.timer.C
-			p.mu.Lock()
-			p.bestBeaconEntry = nil
-			p.mu.Unlock()
+			select {
+			case <-ctx.Done():
+				p.timer.Stop()
+				break timer
+			case <-p.timer.C:
+				p.mu.Lock()
+				p.bestBeaconEntry = nil
+				p.mu.Unlock()
+			}
 		}
 	}()
 
@@ -155,11 +165,9 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		"id":     requestJSON.ID,
 	}).Debug("request received from beacon node")
 
-	if requestJSON.Method == builderAttributes {
-		p.updateBestBeaconEntry(requestJSON, req.RemoteAddr)
-	}
+	p.updateBestBeaconEntry(requestJSON, req.RemoteAddr)
 
-	if p.isFromBestBeaconEntry(req) {
+	if !p.isFromBestBeaconEntry(req) {
 		p.log.WithField("remoteAddr", req.RemoteAddr).Debug("request received from beacon node proxy is not synced to")
 		w.WriteHeader(http.StatusOK)
 		return
@@ -186,7 +194,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 
 			reader := resp.Body
-			if (!resp.Uncompressed && resp.Header.Get("Content-Encoding") == "gzip") {
+			if !resp.Uncompressed && resp.Header.Get("Content-Encoding") == "gzip" {
 				reader, err = gzip.NewReader(resp.Body)
 				if err != nil {
 					p.log.WithError(err).Error("failed to decompress response body")
@@ -259,32 +267,37 @@ func (p *ProxyService) isFromBestBeaconEntry(req *http.Request) bool {
 
 // updates for which the proxy / beacon should sync to
 func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr string) {
-	if len(request.Params) == 0 {
-		return
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.bestBeaconEntry == nil {
+		log.Info("setting new beacon node to sync to")
+		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, CurrentSlot: 0}
 	}
 
-	switch v := request.Params[0].(type) {
-	case *PayloadAttributes:
-		log := p.log.WithFields(logrus.Fields{
-			"newSlot": v.Slot,
-			"addr":    requestAddr,
-		})
+	// update to compare differences in slot number
+	if request.Method == builderAttributes {
+		switch v := request.Params[0].(type) {
+		case *PayloadAttributes:
+			log := p.log.WithFields(logrus.Fields{
+				"newSlot": v.Slot,
+				"addr":    requestAddr,
+			})
 
-		p.mu.Lock()
-		defer p.mu.Unlock()
-
-		if p.bestBeaconEntry == nil {
-			log.Info("setting new beacon node to sync to")
-			p.bestBeaconEntry = &BeaconEntry{CurrentSlot: v.Slot, Addr: requestAddr}
-		} else if p.bestBeaconEntry.CurrentSlot < v.Slot {
-			if p.bestBeaconEntry.Addr != requestAddr {
-				log.WithFields(logrus.Fields{
-					"oldSlot": p.bestBeaconEntry.CurrentSlot,
-					"oldAddr": p.bestBeaconEntry.Addr,
-				}).Info("switching beacon node to sync to")
+			if p.bestBeaconEntry.CurrentSlot < v.Slot {
+				if p.bestBeaconEntry.Addr != requestAddr {
+					log.WithFields(logrus.Fields{
+						"oldSlot": p.bestBeaconEntry.CurrentSlot,
+						"oldAddr": p.bestBeaconEntry.Addr,
+					}).Info("switching beacon node to sync to")
+				}
+				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: v.Slot, Addr: requestAddr}
 			}
-			p.bestBeaconEntry = &BeaconEntry{CurrentSlot: v.Slot, Addr: requestAddr}
 		}
+	}
+
+	// reset expiry time for the current best entry
+	if requestAddr == p.bestBeaconEntry.Addr {
 		p.timer.Reset(p.beaconExpiryTime)
 	}
 }
