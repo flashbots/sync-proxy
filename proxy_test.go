@@ -20,6 +20,8 @@ var (
 
 	// testLog is used to log information in the test methods
 	testLog = logrus.WithField("testing", true)
+
+	from = "localhost:1234"
 )
 
 type testBackend struct {
@@ -75,12 +77,13 @@ func getURLs(t *testing.T, servers []*mockServer) []*url.URL {
 	return urls
 }
 
-func (be *testBackend) request(t *testing.T, payload []byte) *httptest.ResponseRecorder {
+func (be *testBackend) request(t *testing.T, payload []byte, from string) *httptest.ResponseRecorder {
 	var req *http.Request
 	var err error
 
 	req, err = http.NewRequest(http.MethodPost, "/", bytes.NewReader(payload))
 	require.NoError(t, err)
+	req.RemoteAddr = from
 	rr := httptest.NewRecorder()
 	be.proxyService.ServeHTTP(rr, req)
 	return rr
@@ -93,7 +96,7 @@ func TestRequests(t *testing.T) {
 		backend.builders[0].Response = []byte(mockNewPayloadResponseValid)
 		backend.builders[1].Response = []byte(mockNewPayloadResponseValid)
 
-		rr := backend.request(t, []byte(mockNewPayloadRequest))
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 		require.Equal(t, 1, backend.builders[0].GetRequestCount(newPayloadPath))
 		require.Equal(t, 1, backend.builders[1].GetRequestCount(newPayloadPath))
@@ -112,7 +115,7 @@ func TestRequests(t *testing.T) {
 		backend.builders[0].Response = []byte(mockForkchoiceResponse)
 		backend.builders[1].Response = []byte(mockForkchoiceResponse)
 
-		rr := backend.request(t, []byte(mockForkchoiceRequest))
+		rr := backend.request(t, []byte(mockForkchoiceRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 		require.Equal(t, 1, backend.builders[0].GetRequestCount(forkchoicePath))
 		require.Equal(t, 1, backend.builders[1].GetRequestCount(forkchoicePath))
@@ -130,7 +133,7 @@ func TestRequests(t *testing.T) {
 		backend.builders[0].Response = []byte(mockTransitionResponse)
 		backend.builders[1].Response = []byte(mockTransitionResponse)
 
-		rr := backend.request(t, []byte(mockTransitionRequest))
+		rr := backend.request(t, []byte(mockTransitionRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 		require.Equal(t, 1, backend.builders[0].GetRequestCount(transitionConfigPath))
 		require.Equal(t, 1, backend.builders[1].GetRequestCount(transitionConfigPath))
@@ -149,7 +152,7 @@ func TestBuilders(t *testing.T) {
 		backend.builders[0].Response = []byte(mockNewPayloadResponseSyncing)
 		backend.builders[1].Response = []byte(mockNewPayloadResponseValid)
 
-		rr := backend.request(t, []byte(mockNewPayloadRequest))
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 		require.Equal(t, 1, backend.builders[0].GetRequestCount(newPayloadPath))
 		require.Equal(t, 1, backend.builders[1].GetRequestCount(newPayloadPath))
@@ -167,7 +170,7 @@ func TestBuilders(t *testing.T) {
 		backend.builders[0].Response = []byte(mockForkchoiceResponse)
 		backend.builders[1].Server.Close()
 
-		rr := backend.request(t, []byte(mockForkchoiceRequest))
+		rr := backend.request(t, []byte(mockForkchoiceRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 		require.Equal(t, 1, backend.builders[0].GetRequestCount(forkchoicePath))
 		require.Equal(t, 0, backend.builders[1].GetRequestCount(forkchoicePath))
@@ -185,7 +188,7 @@ func TestBuilders(t *testing.T) {
 		backend.builders[1].Response = []byte(mockNewPayloadResponseSyncing)
 		backend.builders[0].Server.Close()
 
-		rr := backend.request(t, []byte(mockNewPayloadRequest))
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 		require.Equal(t, 0, backend.builders[0].GetRequestCount(newPayloadPath))
 		require.Equal(t, 1, backend.builders[1].GetRequestCount(newPayloadPath))
@@ -202,7 +205,7 @@ func TestBuilders(t *testing.T) {
 
 		backend.builders[0].Server.Close()
 
-		rr := backend.request(t, []byte(mockNewPayloadRequest))
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
 		require.Equal(t, http.StatusBadGateway, rr.Code, rr.Body.String())
 		require.Equal(t, 0, backend.builders[0].GetRequestCount(newPayloadPath))
 	})
@@ -212,7 +215,7 @@ func TestProxies(t *testing.T) {
 	t.Run("service should send request to builders as well as other proxies", func(t *testing.T) {
 		backend := newTestBackend(t, 2, 2, time.Second, time.Second, time.Second)
 
-		rr := backend.request(t, []byte(mockNewPayloadRequest))
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 		require.Equal(t, 1, backend.builders[0].GetRequestCount(newPayloadPath))
 		require.Equal(t, 1, backend.builders[1].GetRequestCount(newPayloadPath))
@@ -254,18 +257,18 @@ func TestBestNodeSync(t *testing.T) {
 	t.Run("should update address to sync if sync target address is not set", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 
-		backend.request(t, []byte(mockPayloadAttributeRequest))
+		backend.request(t, []byte(mockNewPayloadRequest), from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 	})
 
 	t.Run("should update address to sync if higher current slot is received", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 
-		backend.request(t, lowerSlot)
+		backend.request(t, lowerSlot, from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 		require.Equal(t, uint64(1), backend.proxyService.bestBeaconEntry.CurrentSlot)
 
-		backend.request(t, higherSlot)
+		backend.request(t, higherSlot, from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 		require.Equal(t, uint64(10), backend.proxyService.bestBeaconEntry.CurrentSlot)
 	})
@@ -273,11 +276,11 @@ func TestBestNodeSync(t *testing.T) {
 	t.Run("should not update address to sync if slot received is not higher than previously received", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 
-		backend.request(t, higherSlot)
+		backend.request(t, higherSlot, from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 		require.Equal(t, uint64(10), backend.proxyService.bestBeaconEntry.CurrentSlot)
 
-		backend.request(t, lowerSlot)
+		backend.request(t, lowerSlot, from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 		require.Equal(t, uint64(10), backend.proxyService.bestBeaconEntry.CurrentSlot)
 	})
@@ -285,15 +288,38 @@ func TestBestNodeSync(t *testing.T) {
 	t.Run("sync target address should be unset if request is not sent within timeout", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 		go backend.proxyService.StartHTTPServer() // start background task
-		backend.request(t, []byte(mockPayloadAttributeRequest))
+		backend.request(t, []byte(mockPayloadAttributeRequest), from)
 
 		backend.proxyService.mu.Lock()
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 		backend.proxyService.mu.Unlock()
 
-		time.Sleep(time.Second * 2)
+		// request from a another client should not reset the timer
+		time.Sleep(time.Millisecond * 500)
+		backend.request(t, []byte(mockForkchoiceRequest), "localhost:8080")
+		time.Sleep(time.Millisecond * 500)
+
 		backend.proxyService.mu.Lock()
 		require.Nil(t, backend.proxyService.bestBeaconEntry)
+		backend.proxyService.mu.Unlock()
+	})
+
+	t.Run("sync target address should still be set if request is received within timeout", func(t *testing.T) {
+		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
+		go backend.proxyService.StartHTTPServer() // start background task
+		backend.request(t, []byte(mockPayloadAttributeRequest), from)
+
+		backend.proxyService.mu.Lock()
+		require.NotNil(t, backend.proxyService.bestBeaconEntry)
+		backend.proxyService.mu.Unlock()
+
+		// request from the best client should reset the timer
+		time.Sleep(time.Millisecond * 500)
+		backend.request(t, []byte(mockPayloadAttributeRequest), from)
+		time.Sleep(time.Millisecond * 500)
+
+		backend.proxyService.mu.Lock()
+		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 		backend.proxyService.mu.Unlock()
 	})
 }
