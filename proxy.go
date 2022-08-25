@@ -167,7 +167,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	p.updateBestBeaconEntry(requestJSON, req.RemoteAddr)
 
-	if !p.isFromBestBeaconEntry(req) {
+	if !p.isFromBestBeaconEntry(req) || !isEngineOrBuilderRequest(requestJSON.Method) {
 		p.log.WithField("remoteAddr", req.RemoteAddr).Debug("request received from beacon node proxy is not synced to")
 		w.WriteHeader(http.StatusOK)
 		return
