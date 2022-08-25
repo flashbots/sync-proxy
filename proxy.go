@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"compress/gzip"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -21,8 +22,9 @@ var (
 	errNoBuilders                  = errors.New("no builders specified")
 	errNoSuccessfulBuilderResponse = errors.New("no successful builder response")
 
-	newPayload = "engine_newPayloadV1"
-	fcU        = "engine_forkchoiceUpdatedV1"
+	newPayload        = "engine_newPayloadV1"
+	fcU               = "engine_forkchoiceUpdatedV1"
+	builderAttributes = "builder_payloadAttributes"
 )
 
 type BuilderResponse struct {
@@ -38,23 +40,35 @@ type ProxyEntry struct {
 	Proxy *httputil.ReverseProxy
 }
 
+// BeaconEntry consists of a URL from a beacon client or proxy and its current slot
+type BeaconEntry struct {
+	Addr        string
+	CurrentSlot uint64
+}
+
 // ProxyServiceOpts contains options for the ProxyService
 type ProxyServiceOpts struct {
-	ListenAddr     string
-	Builders       []*url.URL
-	BuilderTimeout time.Duration
-	Proxies        []*url.URL
-	ProxyTimeout   time.Duration
-	Log            *logrus.Entry
+	ListenAddr        string
+	Builders          []*url.URL
+	BuilderTimeout    time.Duration
+	Proxies           []*url.URL
+	ProxyTimeout      time.Duration
+	BeaconEntryExpiry time.Duration
+	Log               *logrus.Entry
 }
 
 // ProxyService is a service that proxies requests from beacon node to builders
 type ProxyService struct {
-	listenAddr     string
-	srv            *http.Server
-	builderEntries []*ProxyEntry
-	proxyEntries   []*ProxyEntry
-	log            *logrus.Entry
+	listenAddr       string
+	srv              *http.Server
+	builderEntries   []*ProxyEntry
+	proxyEntries     []*ProxyEntry
+	bestBeaconEntry  *BeaconEntry
+	beaconExpiryTime time.Duration
+
+	log   *logrus.Entry
+	timer *time.Timer
+	mu    sync.Mutex
 }
 
 // NewProxyService creates a new ProxyService
@@ -76,10 +90,12 @@ func NewProxyService(opts ProxyServiceOpts) (*ProxyService, error) {
 	}
 
 	return &ProxyService{
-		listenAddr:     opts.ListenAddr,
-		builderEntries: builderEntries,
-		proxyEntries:   proxyEntries,
-		log:            opts.Log,
+		listenAddr:       opts.ListenAddr,
+		builderEntries:   builderEntries,
+		proxyEntries:     proxyEntries,
+		log:              opts.Log,
+		timer:            time.NewTimer(opts.BeaconEntryExpiry),
+		beaconExpiryTime: opts.BeaconEntryExpiry,
 	}, nil
 }
 
@@ -88,6 +104,26 @@ func (p *ProxyService) StartHTTPServer() error {
 	if p.srv != nil {
 		return errServerAlreadyRunning
 	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+
+	// Start background task to make sure we don't get stuck
+	// with a beacon node that stop sending requests
+	go func() {
+	timer:
+		for {
+			select {
+			case <-ctx.Done():
+				p.timer.Stop()
+				break timer
+			case <-p.timer.C:
+				p.mu.Lock()
+				p.bestBeaconEntry = nil
+				p.mu.Unlock()
+			}
+		}
+	}()
 
 	p.srv = &http.Server{
 		Addr:    p.listenAddr,
@@ -102,13 +138,13 @@ func (p *ProxyService) StartHTTPServer() error {
 }
 
 func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// ignore responses forwarded from other proxies unless
-	// there is an issue with the beacon node request
-	if isRequestFromProxy(req) {
-		p.log.Debug("request received from another proxy")
-		w.WriteHeader(http.StatusOK)
-		return
-	}
+	// // ignore responses forwarded from other proxies unless
+	// // there is an issue with the beacon node request
+	// if isRequestFromProxy(req) {
+	// 	p.log.Debug("request received from another proxy")
+	// 	w.WriteHeader(http.StatusOK)
+	// 	return
+	// }
 
 	bodyBytes, err := io.ReadAll(req.Body)
 	if err != nil {
@@ -127,7 +163,15 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	p.log.WithFields(logrus.Fields{
 		"method": requestJSON.Method,
 		"id":     requestJSON.ID,
-	}).Info("request received from beacon node")
+	}).Debug("request received from beacon node")
+
+	p.updateBestBeaconEntry(requestJSON, req.RemoteAddr)
+
+	if !p.isFromBestBeaconEntry(req) {
+		p.log.WithField("remoteAddr", req.RemoteAddr).Debug("request received from beacon node proxy is not synced to")
+		w.WriteHeader(http.StatusOK)
+		return
+	}
 
 	numSuccessRequestsToBuilder := 0
 	var mu sync.Mutex
@@ -150,7 +194,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 
 			reader := resp.Body
-			if (!resp.Uncompressed && resp.Header.Get("Content-Encoding") == "gzip") {
+			if !resp.Uncompressed && resp.Header.Get("Content-Encoding") == "gzip" {
 				reader, err = gzip.NewReader(resp.Body)
 				if err != nil {
 					p.log.WithError(err).Error("failed to decompress response body")
@@ -212,6 +256,49 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		io.Copy(w, io.NopCloser(bytes.NewBuffer(primaryReponse.Body)))
 	} else {
 		http.Error(w, errNoSuccessfulBuilderResponse.Error(), http.StatusBadGateway)
+	}
+}
+
+func (p *ProxyService) isFromBestBeaconEntry(req *http.Request) bool {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+	return p.bestBeaconEntry != nil && p.bestBeaconEntry.Addr == req.RemoteAddr
+}
+
+// updates for which the proxy / beacon should sync to
+func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr string) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
+	if p.bestBeaconEntry == nil {
+		log.Info("setting new beacon node to sync to")
+		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, CurrentSlot: 0}
+	}
+
+	// update to compare differences in slot number
+	if request.Method == builderAttributes {
+		switch v := request.Params[0].(type) {
+		case *PayloadAttributes:
+			log := p.log.WithFields(logrus.Fields{
+				"newSlot": v.Slot,
+				"addr":    requestAddr,
+			})
+
+			if p.bestBeaconEntry.CurrentSlot < v.Slot {
+				if p.bestBeaconEntry.Addr != requestAddr {
+					log.WithFields(logrus.Fields{
+						"oldSlot": p.bestBeaconEntry.CurrentSlot,
+						"oldAddr": p.bestBeaconEntry.Addr,
+					}).Info("switching beacon node to sync to")
+				}
+				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: v.Slot, Addr: requestAddr}
+			}
+		}
+	}
+
+	// reset expiry time for the current best entry
+	if requestAddr == p.bestBeaconEntry.Addr {
+		p.timer.Reset(p.beaconExpiryTime)
 	}
 }
 

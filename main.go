@@ -15,10 +15,11 @@ var (
 	version = "dev" // is set during build process
 
 	// Default values
-	defaultLogLevel   = getEnv("LOG_LEVEL", "info")
-	defaultLogJSON    = os.Getenv("LOG_JSON") != ""
-	defaultListenAddr = getEnv("PROXY_LISTEN_ADDR", "localhost:25590")
-	defaultTimeoutMs  = getEnvInt("BUILDER_TIMEOUT_MS", 2000) // timeout for all the requests to the builders
+	defaultLogLevel       = getEnv("LOG_LEVEL", "info")
+	defaultLogJSON        = os.Getenv("LOG_JSON") != ""
+	defaultListenAddr     = getEnv("PROXY_LISTEN_ADDR", "localhost:25590")
+	defaultTimeoutMs      = getEnvInt("BUILDER_TIMEOUT_MS", 2000) // timeout for all the requests to the builders
+	defaultBeaconExpiryMs = getEnvInt("BEACON_EXPIRY_MS", 2000)   // we should be getting requests every slot (12 seconds)
 
 	// Flags
 	logJSON          = flag.Bool("json", defaultLogJSON, "log in JSON format instead of text")
@@ -67,15 +68,17 @@ func main() {
 	log.WithField("proxies", proxies).Infof("using %d proxies", len(proxies))
 
 	proxyTimeout := time.Duration(*proxyTimeoutMs) * time.Millisecond
+	beaconExpiry := time.Duration(defaultBeaconExpiryMs) * time.Millisecond
 
 	// Create a new proxy service.
 	opts := ProxyServiceOpts{
-		ListenAddr:     *listenAddr,
-		Builders:       builders,
-		BuilderTimeout: builderTimeout,
-		Proxies:        proxies,
-		ProxyTimeout:   proxyTimeout,
-		Log:            log,
+		ListenAddr:        *listenAddr,
+		Builders:          builders,
+		BuilderTimeout:    builderTimeout,
+		Proxies:           proxies,
+		ProxyTimeout:      proxyTimeout,
+		BeaconEntryExpiry: beaconExpiry,
+		Log:               log,
 	}
 
 	proxyService, err := NewProxyService(opts)
