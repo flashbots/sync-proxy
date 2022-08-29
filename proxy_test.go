@@ -104,7 +104,6 @@ func TestRequests(t *testing.T) {
 		var resp JSONRPCResponse
 		resp.Result = new(PayloadStatusV1)
 		err := json.Unmarshal(rr.Body.Bytes(), &resp)
-		t.Log(resp)
 		require.NoError(t, err)
 		require.Equal(t, rr.Body.String(), mockNewPayloadResponseValid)
 	})
@@ -142,6 +141,15 @@ func TestRequests(t *testing.T) {
 		err := json.Unmarshal(rr.Body.Bytes(), &resp)
 		require.NoError(t, err)
 		require.Equal(t, rr.Body.String(), mockTransitionResponse)
+	})
+
+	t.Run("should not process requests not from engine or builder namespace", func(t *testing.T) {
+		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
+
+		rr := backend.request(t, []byte(mockEthSyncRequest), from)
+		require.Equal(t, http.StatusOK, rr.Code)
+
+		require.Equal(t, rr.Body.String(), "")
 	})
 }
 

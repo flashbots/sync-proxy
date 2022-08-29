@@ -52,3 +52,11 @@ func appendHostToXForwardHeader(header http.Header, host string) {
 func isEngineRequest(method string) bool {
 	return strings.HasPrefix(method, "engine_")
 }
+
+func isBuilderRequest(method string) bool {
+	return strings.HasPrefix(method, "builder_")
+}
+
+func isEngineOrBuilderRequest(method string) bool {
+	return isEngineRequest(method) || isBuilderRequest(method)
+}
