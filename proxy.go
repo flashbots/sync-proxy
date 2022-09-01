@@ -168,7 +168,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	p.updateBestBeaconEntry(requestJSON, req.RemoteAddr)
 
-	if !p.isFromBestBeaconEntry(req) || !isEngineOrBuilderRequest(requestJSON.Method) {
+	if p.isFilteredRequest(req.RemoteAddr, requestJSON.Method) {
 		p.log.WithField("remoteAddr", req.RemoteAddr).Debug("request received from beacon node proxy is not synced to")
 		w.WriteHeader(http.StatusOK)
 		return
@@ -260,10 +260,22 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *ProxyService) isFromBestBeaconEntry(req *http.Request) bool {
+func (p *ProxyService) isFilteredRequest(remoteAddr, method string) bool {
+	if !isEngineOrBuilderRequest(method) {
+		return true
+	}
+
+	if !(method == newPayload) && !p.isFromBestBeaconEntry(remoteAddr) {
+		return true
+	}
+
+	return false
+}
+
+func (p *ProxyService) isFromBestBeaconEntry(remoteAddr string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.bestBeaconEntry != nil && p.bestBeaconEntry.Addr == req.RemoteAddr
+	return p.bestBeaconEntry != nil && p.bestBeaconEntry.Addr == remoteAddr
 }
 
 // updates for which the proxy / beacon should sync to

@@ -143,13 +143,46 @@ func TestRequests(t *testing.T) {
 		require.Equal(t, rr.Body.String(), mockTransitionResponse)
 	})
 
-	t.Run("should not process requests not from engine or builder namespace", func(t *testing.T) {
+	t.Run("service should send request to builders as well as other proxies", func(t *testing.T) {
+		backend := newTestBackend(t, 2, 2, time.Second, time.Second, time.Second)
+
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+		require.Equal(t, 1, backend.builders[0].GetRequestCount(newPayloadPath))
+		require.Equal(t, 1, backend.builders[1].GetRequestCount(newPayloadPath))
+	})
+
+	t.Run("should filter requests not from engine or builder namespace", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 
 		rr := backend.request(t, []byte(mockEthChainIDRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code)
 
 		require.Equal(t, rr.Body.String(), "")
+	})
+
+	t.Run("should filter requests not from the best synced", func(t *testing.T) {
+		backend := newTestBackend(t, 2, 2, time.Second, time.Second, time.Second)
+
+		rr := backend.request(t, []byte(mockForkchoiceRequest), "localhost:8080")
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+		rr = backend.request(t, []byte(mockForkchoiceRequest), from)
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+		require.Equal(t, 1, backend.builders[0].GetRequestCount(forkchoicePath))
+		require.Equal(t, 1, backend.builders[1].GetRequestCount(forkchoicePath))
+	})
+
+	t.Run("service should not filter new payload requests from any beacon node", func(t *testing.T) {
+		backend := newTestBackend(t, 2, 2, time.Second, time.Second, time.Second)
+
+		rr := backend.request(t, []byte(mockNewPayloadRequest), "localhost:8080")
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+		rr = backend.request(t, []byte(mockNewPayloadRequest), from)
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+
+		require.Equal(t, 2, backend.builders[0].GetRequestCount(newPayloadPath))
+		require.Equal(t, 2, backend.builders[1].GetRequestCount(newPayloadPath))
 	})
 }
 
@@ -219,38 +252,7 @@ func TestBuilders(t *testing.T) {
 	})
 }
 
-func TestProxies(t *testing.T) {
-	t.Run("service should send request to builders as well as other proxies", func(t *testing.T) {
-		backend := newTestBackend(t, 2, 2, time.Second, time.Second, time.Second)
-
-		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
-		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
-		require.Equal(t, 1, backend.builders[0].GetRequestCount(newPayloadPath))
-		require.Equal(t, 1, backend.builders[1].GetRequestCount(newPayloadPath))
-		require.Equal(t, 1, backend.proxies[0].GetRequestCount(newPayloadPath))
-		require.Equal(t, 1, backend.proxies[1].GetRequestCount(newPayloadPath))
-	})
-
-	// t.Run("service should ignore requests from proxies", func(t *testing.T) {
-	// 	backend := newTestBackend(t, 1, 1, time.Second, time.Second)
-
-	// 	url, err := url.ParseRequestURI(backend.proxyService.listenAddr)
-	// 	require.NoError(t, err)
-
-	// 	proxy := httputil.NewSingleHostReverseProxy(url)
-	// 	proxy.Transport = http.DefaultTransport
-
-	// 	req, err := http.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(mockForkchoiceResponse)))
-	// 	require.NoError(t, err)
-	// 	proxyReq := BuildProxyRequest(req, proxy, []byte(mockForkchoiceResponse))
-
-	// 	rr := httptest.NewRecorder()
-	// 	backend.proxyService.ServeHTTP(rr, proxyReq)
-	// 	require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
-	// })
-}
-
-func TestBestNodeSync(t *testing.T) {
+func TestUpdateBestBeaconNode(t *testing.T) {
 	var data JSONRPCRequest
 	json.Unmarshal([]byte(mockPayloadAttributeRequest), &data)
 
