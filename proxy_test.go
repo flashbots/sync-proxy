@@ -146,7 +146,7 @@ func TestRequests(t *testing.T) {
 	t.Run("should not process requests not from engine or builder namespace", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 
-		rr := backend.request(t, []byte(mockEthSyncRequest), from)
+		rr := backend.request(t, []byte(mockEthChainIDRequest), from)
 		require.Equal(t, http.StatusOK, rr.Code)
 
 		require.Equal(t, rr.Body.String(), "")
