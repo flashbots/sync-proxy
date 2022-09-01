@@ -147,6 +147,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// }
 
 	bodyBytes, err := io.ReadAll(req.Body)
+	defer req.Body.Close()
 	if err != nil {
 		p.log.WithError(err).Error("failed to read request body")
 		w.WriteHeader(http.StatusInternalServerError)

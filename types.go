@@ -10,7 +10,7 @@ import (
 type JSONRPCRequest struct {
 	JSONRPC string `json:"jsonrpc"`
 	Method  string `json:"method"`
-	Params  []any  `json:"params"`
+	Params  []any  `json:"params,omitempty"`
 	ID      int    `json:"id"`
 }
 
@@ -45,7 +45,7 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var msg struct {
 		JSONRPC string          `json:"jsonrpc"`
 		Method  string          `json:"method"`
-		Params  json.RawMessage `json:"params"`
+		Params  json.RawMessage `json:"params,omitempty"`
 		ID      int             `json:"id"`
 	}
 
@@ -64,8 +64,10 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 			params = append(params, p)
 		}
 	default:
-		if err := json.Unmarshal(msg.Params, &params); err != nil {
-			return err
+		if msg.Params != nil {
+			if err := json.Unmarshal(msg.Params, &params); err != nil {
+				return err
+			}
 		}
 	}
 	*req = JSONRPCRequest{

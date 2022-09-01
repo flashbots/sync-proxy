@@ -82,5 +82,5 @@ var (
 			"terminalBlockNumber": "0x0"
 		}
 	}`
-	mockEthSyncRequest = `{"jsonrpc":"2.0","method":"eth_syncing","params":[],"id":1}`
+	mockEthChainIDRequest = `{"jsonrpc":"2.0","method":"eth_chainId","id":1}`
 )
