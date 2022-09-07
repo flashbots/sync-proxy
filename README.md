@@ -1,7 +1,7 @@
 # go-template
 
-[![Goreport status](https://goreportcard.com/badge/github.com/flashbots/builder-proxy)](https://goreportcard.com/report/github.com/flashbots/builder-proxy)
-[![Test status](https://github.com/flashbots/builder-proxy/workflows/Checks/badge.svg)](https://github.com/flashbots/builder-proxy/actions?query=workflow%3A%22Checks%22)
+[![Goreport status](https://goreportcard.com/badge/github.com/flashbots/sync-proxy)](https://goreportcard.com/report/github.com/flashbots/sync-proxy)
+[![Test status](https://github.com/flashbots/sync-proxy/workflows/Checks/badge.svg)](https://github.com/flashbots/sync-proxy/actions?query=workflow%3A%22Checks%22)
 
 Flashbots internal proxy to allow redundant execution client (EL) state sync post merge.
 
@@ -17,12 +17,12 @@ More Information:
 Run a BN pointing to the proxy (default is `localhost:25590`). To run with multiple ELs running, run the proxy specifying the EL endpoints (make sure to point to the authenticated port). 
 
 ```bash
-git clone https://github.com/flashbots/builder-proxy.git
-cd builder-proxy
+git clone https://github.com/flashbots/sync-proxy.git
+cd sync-proxy
 make build
 
 # Show the help
-./builder-proxy -help
+./sync-proxy -help
 ```
 
 You can also run multiple BNs with redundant BN requests by running multiple proxies that proxy requests between each other.
@@ -30,5 +30,5 @@ You can also run multiple BNs with redundant BN requests by running multiple pro
 To run with EL endpoint and / or multiple proxies:
 
 ```
-./builder-proxy -builders="localhost:8551,localhost:8552" -proxies="localhost:25591"
+./sync-proxy -builders="localhost:8551,localhost:8552" -proxies="localhost:25591"
 ```
