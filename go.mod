@@ -1,4 +1,4 @@
-module github.com/flashbots/builder-proxy
+module github.com/flashbots/sync-proxy
 
 go 1.18
 
