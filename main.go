@@ -111,6 +111,9 @@ func parseURLs(urls string) []*url.URL {
 	ret := []*url.URL{}
 	for _, entry := range strings.Split(urls, ",") {
 		rawURL := strings.TrimSpace(entry)
+		if rawURL == "" {
+			continue
+		}
 
 		// Add protocol scheme prefix if it does not exist.
 		if !strings.HasPrefix(rawURL, "http") {
