@@ -307,14 +307,16 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 				"addr":    requestAddr,
 			})
 
-			// update best beacon entry if new slot is greater than current slot with buffer of 1 slot
-			// to avoid too much switching between beacon nodes
-			buffer := uint64(1)
-			if p.bestBeaconEntry.CurrentSlot + buffer < v.Slot {
-				if p.bestBeaconEntry.Addr != requestAddr {
+			if p.bestBeaconEntry.CurrentSlot < v.Slot {
+				// update best beacon entry if new slot is greater than current slot with buffer of 1 slot
+				// to avoid too much switching between beacon nodes that are only 1 slot apart
+				buffer := uint64(1)
+				if p.bestBeaconEntry.Addr != requestAddr && p.bestBeaconEntry.CurrentSlot + buffer < v.Slot {
 					log.WithFields(logrus.Fields{
 						"oldSlot": p.bestBeaconEntry.CurrentSlot,
 						"oldAddr": p.bestBeaconEntry.Addr,
+						"newSlot": v.Slot,
+						"newAddr": requestAddr,
 					}).Info("switching beacon node to sync to")
 				}
 				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: v.Slot, Addr: requestAddr}
