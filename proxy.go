@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -172,7 +173,8 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		"id":     requestJSON.ID,
 	}).Debug("request received from beacon node")
 
-	p.updateBestBeaconEntry(requestJSON, req.RemoteAddr)
+	remoteHost := getRemoteHost(req)
+	p.updateBestBeaconEntry(requestJSON, remoteHost)
 
 	if p.isFilteredRequest(req.RemoteAddr, requestJSON.Method) {
 		p.log.WithField("remoteAddr", req.RemoteAddr).Debug("request received from beacon node proxy is not synced to")
@@ -356,6 +358,19 @@ func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse
 			}).Info("found difference in EL responses")
 		}
 	}
+}
+
+func getRemoteHost(r *http.Request) string {
+	var remoteAddr string
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		remoteAddr = xff
+	} else {
+		splitAddr := strings.Split(r.RemoteAddr, ":")
+		if len(splitAddr) > 0 {
+			remoteAddr = splitAddr[0]
+		}
+	}
+	return remoteAddr
 }
 
 func extractStatus(method string, response []byte) (string, error) {
