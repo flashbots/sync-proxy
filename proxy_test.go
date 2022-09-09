@@ -21,7 +21,7 @@ var (
 	// testLog is used to log information in the test methods
 	testLog = logrus.WithField("testing", true)
 
-	from = "localhost:1234"
+	from = "10.0.0.0:1234"
 )
 
 type testBackend struct {
