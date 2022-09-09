@@ -176,8 +176,8 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	remoteHost := getRemoteHost(req)
 	p.updateBestBeaconEntry(requestJSON, remoteHost)
 
-	if p.isFilteredRequest(req.RemoteAddr, requestJSON.Method) {
-		p.log.WithField("remoteAddr", req.RemoteAddr).Debug("request received from beacon node proxy is not synced to")
+	if p.isFilteredRequest(remoteHost, requestJSON.Method) {
+		p.log.WithField("remoteHost", remoteHost).Debug("request received from beacon node proxy is not synced to")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -268,22 +268,22 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *ProxyService) isFilteredRequest(remoteAddr, method string) bool {
+func (p *ProxyService) isFilteredRequest(remoteHost, method string) bool {
 	if !isEngineOrBuilderRequest(method) {
 		return true
 	}
 
-	if !(method == newPayload) && !p.isFromBestBeaconEntry(remoteAddr) {
+	if !(method == newPayload) && !p.isFromBestBeaconEntry(remoteHost) {
 		return true
 	}
 
 	return false
 }
 
-func (p *ProxyService) isFromBestBeaconEntry(remoteAddr string) bool {
+func (p *ProxyService) isFromBestBeaconEntry(remoteHost string) bool {
 	p.mu.Lock()
 	defer p.mu.Unlock()
-	return p.bestBeaconEntry != nil && p.bestBeaconEntry.Addr == remoteAddr
+	return p.bestBeaconEntry != nil && p.bestBeaconEntry.Addr == remoteHost
 }
 
 // updates for which the proxy / beacon should sync to
@@ -366,16 +366,16 @@ func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse
 }
 
 func getRemoteHost(r *http.Request) string {
-	var remoteAddr string
+	var remoteHost string
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		remoteAddr = xff
+		remoteHost = xff
 	} else {
 		splitAddr := strings.Split(r.RemoteAddr, ":")
 		if len(splitAddr) > 0 {
-			remoteAddr = splitAddr[0]
+			remoteHost = splitAddr[0]
 		}
 	}
-	return remoteAddr
+	return remoteHost
 }
 
 func extractStatus(method string, response []byte) (string, error) {
