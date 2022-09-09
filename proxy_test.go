@@ -81,7 +81,12 @@ func (be *testBackend) request(t *testing.T, payload []byte, from string) *httpt
 	var req *http.Request
 	var err error
 
-	req, err = http.NewRequest(http.MethodPost, "/", bytes.NewReader(payload))
+	if payload == nil {
+		req, err = http.NewRequest(http.MethodGet, "/", nil)
+	} else {
+		req, err = http.NewRequest(http.MethodPost, "/", bytes.NewReader(payload))
+	}
+
 	require.NoError(t, err)
 	req.RemoteAddr = from
 	rr := httptest.NewRecorder()
@@ -150,6 +155,13 @@ func TestRequests(t *testing.T) {
 		require.Equal(t, http.StatusOK, rr.Code)
 
 		require.Equal(t, rr.Body.String(), "")
+	})
+
+	t.Run("should return status ok for GET requests", func(t *testing.T) {
+		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
+
+		rr := backend.request(t, nil, from)
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
 	})
 }
 
