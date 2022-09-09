@@ -31,7 +31,7 @@ var (
 	proxyTimeoutMs   = flag.Int("proxy-request-timeout", defaultTimeoutMs, "timeout for redundant beacon node requests to another proxy [ms]")
 )
 
-var log = logrus.WithField("module", "builder-proxy")
+var log = logrus.WithField("module", "sync-proxy")
 
 func main() {
 	flag.Parse()
@@ -54,7 +54,7 @@ func main() {
 		logrus.SetLevel(lvl)
 	}
 
-	log.Infof("builder-proxy %s", version)
+	log.Infof("sync-proxy %s", version)
 
 	builders := parseURLs(*builderURLs)
 	if len(builders) == 0 {

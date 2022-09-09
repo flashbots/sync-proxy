@@ -9,5 +9,5 @@ FROM alpine
 RUN apk add --no-cache libgcc libstdc++ libc6-compat
 WORKDIR /app
 COPY --from=builder /etc/ssl/certs/ca-certificates.crt /etc/ssl/certs/
-COPY --from=builder /build/builder-proxy /app/builder-proxy
-ENTRYPOINT ["/app/builder-proxy"]
+COPY --from=builder /build/sync-proxy /app/sync-proxy
+ENTRYPOINT ["/app/sync-proxy"]
