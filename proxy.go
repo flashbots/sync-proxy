@@ -146,6 +146,12 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// 	return
 	// }
 
+	// return OK for all GET requests, used for debug
+	if req.Method == http.MethodGet {
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	bodyBytes, err := io.ReadAll(req.Body)
 	defer req.Body.Close()
 	if err != nil {
@@ -361,6 +367,7 @@ func extractStatus(method string, response []byte) (string, error) {
 	case fcU:
 		responseJSON.Result = new(ForkChoiceResponse)
 	default:
+		return "", nil // not interested in other engine api calls
 	}
 
 	if err := json.Unmarshal(response, &responseJSON); err != nil {
