@@ -292,7 +292,9 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 	defer p.mu.Unlock()
 
 	if p.bestBeaconEntry == nil {
-		log.Info("setting new beacon node to sync to")
+		log.WithFields(logrus.Fields{
+			"newAddr": requestAddr,
+		}).Info("setting new beacon node to sync to")
 		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, CurrentSlot: 0}
 	}
 
