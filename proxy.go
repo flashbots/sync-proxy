@@ -139,14 +139,6 @@ func (p *ProxyService) StartHTTPServer() error {
 }
 
 func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
-	// // ignore responses forwarded from other proxies unless
-	// // there is an issue with the beacon node request
-	// if isRequestFromProxy(req) {
-	// 	p.log.Debug("request received from another proxy")
-	// 	w.WriteHeader(http.StatusOK)
-	// 	return
-	// }
-
 	// return OK for all GET requests, used for debug
 	if req.Method == http.MethodGet {
 		w.WriteHeader(http.StatusOK)
@@ -188,6 +180,12 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var responses []BuilderResponse
 	var primaryReponse BuilderResponse
 
+	// return if request is cancelled
+	if req.Context().Err() != nil {
+		w.WriteHeader(http.StatusBadRequest)
+		return
+	}
+	
 	// Call the builders
 	var wg sync.WaitGroup
 	for _, entry := range p.builderEntries {
