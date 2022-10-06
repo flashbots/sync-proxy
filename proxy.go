@@ -151,32 +151,18 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	var requestJSON JSONRPCRequest
-	if err := json.Unmarshal(bodyBytes, &requestJSON); err != nil {
-		p.log.WithError(err).Error("failed to decode request body json")
+	remoteHost := getRemoteHost(req)
+	requestJSON, err := p.checkBeaconRequest(bodyBytes, remoteHost)
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	p.log.WithFields(logrus.Fields{
-		"method": requestJSON.Method,
-		"id":     requestJSON.ID,
-	}).Debug("request received from beacon node")
-
-	remoteHost := getRemoteHost(req)
-	p.updateBestBeaconEntry(requestJSON, remoteHost)
-
 	if p.shouldFilterRequest(remoteHost, requestJSON.Method) {
-		p.log.WithField("remoteHost", remoteHost).Debug("request received from beacon node proxy is not synced to")
+		p.log.WithField("remoteHost", remoteHost).Debug("request filtered from beacon node proxy is not synced to")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
-
-	numSuccessRequestsToBuilder := 0
-	var mu sync.Mutex
-
-	var responses []BuilderResponse
-	var primaryReponse BuilderResponse
 
 	// return if request is cancelled or timed out
 	err = req.Context().Err()
@@ -184,6 +170,26 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
+
+	builderResponse, err := p.callBuilders(req, requestJSON, bodyBytes)
+	p.callProxies(req, bodyBytes)
+
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadGateway)
+		return
+	}
+
+	copyHeader(w.Header(), builderResponse.Header)
+	w.WriteHeader(builderResponse.StatusCode)
+	io.Copy(w, io.NopCloser(bytes.NewBuffer(builderResponse.Body)))
+}
+
+func (p *ProxyService) callBuilders(req *http.Request, requestJSON JSONRPCRequest, bodyBytes []byte) (BuilderResponse, error) {
+	numSuccessRequestsToBuilder := 0
+	var mu sync.Mutex
+
+	var responses []BuilderResponse
+	var primaryReponse BuilderResponse
 
 	// Call the builders
 	var wg sync.WaitGroup
@@ -239,6 +245,21 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}(entry)
 	}
 
+	// Wait for all requests to complete...
+	wg.Wait()
+
+	if numSuccessRequestsToBuilder == 0 {
+		return primaryReponse, errNoSuccessfulBuilderResponse
+	}
+
+	if isEngineRequest(requestJSON.Method) {
+		p.maybeLogReponseDifferences(requestJSON.Method, primaryReponse, responses)
+	}
+
+	return primaryReponse, nil
+}
+
+func (p *ProxyService) callProxies(req *http.Request, bodyBytes []byte) {
 	// call other proxies to forward requests from other beacon nodes
 	for _, entry := range p.proxyEntries {
 		go func(entry *ProxyEntry) {
@@ -249,20 +270,22 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			}
 		}(entry)
 	}
+}
 
-	// Wait for all requests to complete...
-	wg.Wait()
-
-	if numSuccessRequestsToBuilder != 0 {
-		if isEngineRequest(requestJSON.Method) {
-			p.maybeLogReponseDifferences(requestJSON.Method, primaryReponse, responses)
-		}
-		copyHeader(w.Header(), primaryReponse.Header)
-		w.WriteHeader(primaryReponse.StatusCode)
-		io.Copy(w, io.NopCloser(bytes.NewBuffer(primaryReponse.Body)))
-	} else {
-		http.Error(w, errNoSuccessfulBuilderResponse.Error(), http.StatusBadGateway)
+func (p *ProxyService) checkBeaconRequest(bodyBytes []byte, remoteHost string) (JSONRPCRequest, error) {
+	var requestJSON JSONRPCRequest
+	if err := json.Unmarshal(bodyBytes, &requestJSON); err != nil {
+		p.log.WithError(err).Error("failed to decode request body json")
+		return requestJSON, err
 	}
+
+	p.log.WithFields(logrus.Fields{
+		"method": requestJSON.Method,
+		"id":     requestJSON.ID,
+	}).Debug("request received from beacon node")
+
+	p.updateBestBeaconEntry(requestJSON, remoteHost)
+	return requestJSON, nil
 }
 
 func (p *ProxyService) shouldFilterRequest(remoteHost, method string) bool {

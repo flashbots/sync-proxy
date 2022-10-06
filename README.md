@@ -6,7 +6,6 @@
 Flashbots proxy to allow redundant execution client (EL) state sync post merge.
 
 * Runs a proxy server that proxies requests from a beacon node (BN) to multiple other execution clients
-* Proxies requests from BN to other proxies to achieve redundancy with requests from multiple BNs
 * Can drive EL sync from multiple BNs for redundancy
 
 ## Getting Started
@@ -22,10 +21,14 @@ make build
 ./sync-proxy -help
 ```
 
-You can also run multiple BNs with redundant BN requests by running multiple proxies that proxy requests between each other.
-
-To run with EL endpoint and / or multiple proxies:
+To run with an EL endpoint:
 
 ```
-./sync-proxy -builders="localhost:8551,localhost:8552" -proxies="localhost:25591"
+./sync-proxy -builders="localhost:8551,localhost:8552"
 ```
+
+## Caveats
+
+The sync proxy attempts to sync to best beacon node based on the slot number in a custom rpc call sent by the open source [flashbots prysm client](https://github.com/flashbots/prysm). If not using the flashbots prysm client the sync proxy will sync to the beacon node that sends the sync proxy a request first. It will only switch if the first beacon node stops sending requests. 
+
+The sync proxy attempts to identify the best beacon node based on the originating host of the request. If you are using the same host for multiple beacon nodes to sync the EL, the sync proxy won't be able to distinguish between the beacon nodes and will proxy all requests from the same host to the ELs.
