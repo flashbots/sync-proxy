@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -10,7 +11,7 @@ import (
 
 func BuildProxyRequest(req *http.Request, proxy *httputil.ReverseProxy, bodyBytes []byte) *http.Request {
 	// Copy and redirect request to EL endpoint
-	proxyReq := req.Clone(req.Context())
+	proxyReq := req.Clone(context.Background())
 	appendHostToXForwardHeader(proxyReq.Header, req.URL.Host)
 	proxyReq.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 

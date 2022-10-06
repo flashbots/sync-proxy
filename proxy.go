@@ -180,14 +180,12 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	var responses []BuilderResponse
 	var primaryReponse BuilderResponse
 
-	// return if request is cancelled
-	if req.Context().Err() != nil {
+	// return if request is cancelled or timed out
+	err = req.Context().Err()
+	if errors.Is(err, context.DeadlineExceeded) || errors.Is(err, context.Canceled) {
 		w.WriteHeader(http.StatusBadRequest)
 		return
 	}
-	
-	reqCopy := req.Clone(context.Background())
-	reqCopy.Body = io.NopCloser(bytes.NewReader(bodyBytes))
 
 	// Call the builders
 	var wg sync.WaitGroup
@@ -197,7 +195,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			defer wg.Done()
 			url := entry.URL
 			proxy := entry.Proxy
-			resp, err := SendProxyRequest(reqCopy, proxy, bodyBytes)
+			resp, err := SendProxyRequest(req, proxy, bodyBytes)
 			if err != nil {
 				log.WithError(err).WithField("url", url.String()).Error("error sending request to builder")
 				return
@@ -246,7 +244,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// call other proxies to forward requests from other beacon nodes
 	for _, entry := range p.proxyEntries {
 		go func(entry *ProxyEntry) {
-			_, err := SendProxyRequest(reqCopy, entry.Proxy, bodyBytes)
+			_, err := SendProxyRequest(req, entry.Proxy, bodyBytes)
 			if err != nil {
 				log.WithError(err).WithField("url", entry.URL.String()).Error("error sending request to proxy")
 				return
