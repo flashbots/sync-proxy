@@ -3,8 +3,10 @@ package main
 import (
 	"encoding/json"
 
-	"github.com/ethereum/go-ethereum/common/hexutil"
-	"github.com/flashbots/go-boost-utils/types"
+	"github.com/ethereum/go-ethereum/core/beacon"
+	"github.com/prysmaticlabs/prysm/v3/proto/builder"
+	// "github.com/ethereum/go-ethereum/common/hexutil"
+	// "github.com/flashbots/go-boost-utils/types"
 )
 
 type JSONRPCRequest struct {
@@ -23,23 +25,11 @@ type JSONRPCResponse struct {
 // PayloadID is an identifier of the payload build process
 type PayloadID [8]byte
 
-type PayloadStatusV1 struct {
-	Status          string      `json:"status"`
-	LatestValidHash *types.Hash `json:"latestValidHash"`
-	ValidationError *string     `json:"validationError"`
-}
+type PayloadStatusV1 = beacon.PayloadStatusV1
 
-type ForkChoiceResponse struct {
-	PayloadStatus PayloadStatusV1 `json:"payloadStatus"`
-	PayloadID     *PayloadID      `json:"payloadId"`
-}
+type ForkChoiceResponse = beacon.ForkChoiceResponse
 
-type PayloadAttributes struct {
-	Timestamp  hexutil.Uint64 `json:"timestamp"`
-	PrevRandao types.Hash     `json:"prevRandao"`
-	Slot       uint64         `json:"slot"`
-	BlockHash  types.Hash     `json:"blockHash"`
-}
+type BuilderPayloadAttributes = builder.BuilderPayloadAttributes
 
 func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var msg struct {
@@ -56,7 +46,7 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var params []any
 	switch msg.Method {
 	case builderAttributes:
-		var payloadParams []*PayloadAttributes
+		var payloadParams []*BuilderPayloadAttributes
 		if err := json.Unmarshal(msg.Params, &payloadParams); err != nil {
 			return err
 		}

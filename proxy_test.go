@@ -268,11 +268,11 @@ func TestUpdateBestBeaconNode(t *testing.T) {
 	var data JSONRPCRequest
 	json.Unmarshal([]byte(mockPayloadAttributeRequest), &data)
 
-	data.Params[0].(*PayloadAttributes).Slot = 10
+	data.Params[0].(*BuilderPayloadAttributes).Slot = 10
 	higherSlot, err := json.Marshal(data)
 	require.NoError(t, err)
 
-	data.Params[0].(*PayloadAttributes).Slot = 1
+	data.Params[0].(*BuilderPayloadAttributes).Slot = 1
 	lowerSlot, err := json.Marshal(data)
 	require.NoError(t, err)
 

@@ -321,17 +321,17 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 	// update to compare differences in slot number
 	if request.Method == builderAttributes {
 		switch v := request.Params[0].(type) {
-		case *PayloadAttributes:
+		case *BuilderPayloadAttributes:
 			log := p.log.WithFields(logrus.Fields{
 				"newSlot": v.Slot,
 				"addr":    requestAddr,
 			})
-
-			if p.bestBeaconEntry.CurrentSlot < v.Slot {
+			slot := uint64(v.Slot)
+			if p.bestBeaconEntry.CurrentSlot < slot {
 				// update best beacon entry if new slot is greater than current slot with buffer of 1 slot
 				// avoids too much switching between beacon nodes are on the same slot but request slightly earlier
 				buffer := uint64(1)
-				if p.bestBeaconEntry.Addr != requestAddr && p.bestBeaconEntry.CurrentSlot+buffer < v.Slot {
+				if p.bestBeaconEntry.Addr != requestAddr && p.bestBeaconEntry.CurrentSlot+buffer < slot {
 					log.WithFields(logrus.Fields{
 						"oldSlot": p.bestBeaconEntry.CurrentSlot,
 						"oldAddr": p.bestBeaconEntry.Addr,
@@ -339,7 +339,7 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 						"newAddr": requestAddr,
 					}).Info("switching beacon node to sync to")
 				}
-				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: v.Slot, Addr: requestAddr}
+				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: slot, Addr: requestAddr}
 			}
 		}
 	}
