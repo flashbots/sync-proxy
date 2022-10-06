@@ -11,7 +11,6 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
-	"strings"
 	"sync"
 	"time"
 
@@ -112,12 +111,11 @@ func (p *ProxyService) StartHTTPServer() error {
 	// Start background task to make sure we don't get stuck
 	// with a beacon node that stop sending requests
 	go func() {
-	timer:
 		for {
 			select {
 			case <-ctx.Done():
 				p.timer.Stop()
-				break timer
+				return
 			case <-p.timer.C:
 				p.mu.Lock()
 				p.bestBeaconEntry = nil
@@ -168,7 +166,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	remoteHost := getRemoteHost(req)
 	p.updateBestBeaconEntry(requestJSON, remoteHost)
 
-	if p.isFilteredRequest(remoteHost, requestJSON.Method) {
+	if p.shouldFilterRequest(remoteHost, requestJSON.Method) {
 		p.log.WithField("remoteHost", remoteHost).Debug("request received from beacon node proxy is not synced to")
 		w.WriteHeader(http.StatusOK)
 		return
@@ -267,7 +265,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	}
 }
 
-func (p *ProxyService) isFilteredRequest(remoteHost, method string) bool {
+func (p *ProxyService) shouldFilterRequest(remoteHost, method string) bool {
 	if !isEngineOrBuilderRequest(method) {
 		return true
 	}
@@ -310,7 +308,7 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 				// update best beacon entry if new slot is greater than current slot with buffer of 1 slot
 				// avoids too much switching between beacon nodes are on the same slot but request slightly earlier
 				buffer := uint64(1)
-				if p.bestBeaconEntry.Addr != requestAddr && p.bestBeaconEntry.CurrentSlot + buffer < v.Slot {
+				if p.bestBeaconEntry.Addr != requestAddr && p.bestBeaconEntry.CurrentSlot+buffer < v.Slot {
 					log.WithFields(logrus.Fields{
 						"oldSlot": p.bestBeaconEntry.CurrentSlot,
 						"oldAddr": p.bestBeaconEntry.Addr,
@@ -363,45 +361,6 @@ func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse
 				"secondaryUrl":    response.URL.String(),
 			}).Info("found difference in EL responses")
 		}
-	}
-}
-
-func getRemoteHost(r *http.Request) string {
-	var remoteHost string
-	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
-		remoteHost = xff
-	} else {
-		splitAddr := strings.Split(r.RemoteAddr, ":")
-		if len(splitAddr) > 0 {
-			remoteHost = splitAddr[0]
-		}
-	}
-	return remoteHost
-}
-
-func extractStatus(method string, response []byte) (string, error) {
-	var responseJSON JSONRPCResponse
-
-	switch method {
-	case newPayload:
-		responseJSON.Result = new(PayloadStatusV1)
-	case fcU:
-		responseJSON.Result = new(ForkChoiceResponse)
-	default:
-		return "", nil // not interested in other engine api calls
-	}
-
-	if err := json.Unmarshal(response, &responseJSON); err != nil {
-		return "", err
-	}
-
-	switch v := responseJSON.Result.(type) {
-	case *ForkChoiceResponse:
-		return v.PayloadStatus.Status, nil
-	case *PayloadStatusV1:
-		return v.Status, nil
-	default:
-		return "", nil // not interested in other engine api calls
 	}
 }
 

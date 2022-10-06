@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httputil"
@@ -44,12 +45,6 @@ func appendHostToXForwardHeader(header http.Header, host string) {
 	header.Set("X-Forwarded-For", host)
 }
 
-// func isRequestFromProxy(req *http.Request) bool {
-// 	// check if request is from a proxy url
-// 	forwardedFrom := req.Header["X-Forwarded-For"]
-// 	return len(forwardedFrom) != 0
-// }
-
 func isEngineRequest(method string) bool {
 	return strings.HasPrefix(method, "engine_")
 }
@@ -60,4 +55,43 @@ func isBuilderRequest(method string) bool {
 
 func isEngineOrBuilderRequest(method string) bool {
 	return isEngineRequest(method) || isBuilderRequest(method)
+}
+
+func getRemoteHost(r *http.Request) string {
+	var remoteHost string
+	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
+		remoteHost = xff
+	} else {
+		splitAddr := strings.Split(r.RemoteAddr, ":")
+		if len(splitAddr) > 0 {
+			remoteHost = splitAddr[0]
+		}
+	}
+	return remoteHost
+}
+
+func extractStatus(method string, response []byte) (string, error) {
+	var responseJSON JSONRPCResponse
+
+	switch method {
+	case newPayload:
+		responseJSON.Result = new(PayloadStatusV1)
+	case fcU:
+		responseJSON.Result = new(ForkChoiceResponse)
+	default:
+		return "", nil // not interested in other engine api calls
+	}
+
+	if err := json.Unmarshal(response, &responseJSON); err != nil {
+		return "", err
+	}
+
+	switch v := responseJSON.Result.(type) {
+	case *ForkChoiceResponse:
+		return v.PayloadStatus.Status, nil
+	case *PayloadStatusV1:
+		return v.Status, nil
+	default:
+		return "", nil // not interested in other engine api calls
+	}
 }
