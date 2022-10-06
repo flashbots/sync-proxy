@@ -35,6 +35,10 @@ cover-html:
 build-for-docker:
 	GOOS=linux go build -ldflags "-X main.version=${GIT_VER}" -v -o sync-proxy .
 
+test-coverage:
+	go test -race -v -covermode=atomic -coverprofile=coverage.out ./...
+	go tool cover -func coverage.out
+
 docker-image:
 	DOCKER_BUILDKIT=1 docker build . -t sync-proxy
 	docker tag sync-proxy:latest ${ECR_URI}:${GIT_VER}
