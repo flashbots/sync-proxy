@@ -19,7 +19,7 @@ var (
 	defaultLogJSON        = os.Getenv("LOG_JSON") != ""
 	defaultListenAddr     = getEnv("PROXY_LISTEN_ADDR", "localhost:25590")
 	defaultTimeoutMs      = getEnvInt("BUILDER_TIMEOUT_MS", 2000) // timeout for all the requests to the builders
-	defaultBeaconExpiryMs = getEnvInt("BEACON_EXPIRY_MS", 12000)   // we should be getting requests every slot (12 seconds)
+	defaultBeaconExpiryMs = getEnvInt("BEACON_EXPIRY_MS", 12000)  // we should be getting requests every slot (12 seconds)
 
 	// Flags
 	logJSON          = flag.Bool("json", defaultLogJSON, "log in JSON format instead of text")
