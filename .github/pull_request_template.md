@@ -15,5 +15,6 @@
 ## ✅ I have run these commands
 
 * [ ] `make lint`
-* [ ] `make test`
+* [ ] `make test-race`
 * [ ] `go mod tidy`
+* [ ] I have seen and agree to `CONTRIBUTING.md`
