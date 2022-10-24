@@ -27,6 +27,12 @@ To run with an EL endpoint:
 ./sync-proxy -builders="localhost:8551,localhost:8552"
 ```
 
+This can also be used with nginx, with requests proxied to a local execution client and mirrored to multiple sync proxies:
+
+![nginx setup overview](docs/nginx-setup.png)
+
+An example nginx config for this setup can be found [here](docs/sync_proxy.example.conf).
+
 ## Caveats
 
 The sync proxy attempts to sync to best beacon node based on the slot number in a custom rpc call sent by the open source [flashbots prysm client](https://github.com/flashbots/prysm). If not using the flashbots prysm client the sync proxy will sync to the beacon node that sends the sync proxy a request first. It will only switch if the first beacon node stops sending requests. 
