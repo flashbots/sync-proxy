@@ -10,7 +10,8 @@ Flashbots proxy to allow redundant execution client (EL) state sync post merge.
 
 ## Getting Started
 
-Run a BN pointing to the proxy (default is `localhost:25590`). To run with multiple ELs running, run the proxy specifying the EL endpoints (make sure to point to the authenticated port). 
+* Run a BN with the execution endpoint pointing to the proxy (default is `localhost:25590`). 
+* Start the proxy with a flag specifying one or multiple EL endpoints (make sure to point to the authenticated port). 
 
 ```bash
 git clone https://github.com/flashbots/sync-proxy.git
@@ -21,20 +22,69 @@ make build
 ./sync-proxy -help
 ```
 
-To run with an EL endpoint:
+To run with multiple EL endpoins:
 
 ```
 ./sync-proxy -builders="localhost:8551,localhost:8552"
 ```
 
-This can also be used with nginx, with requests proxied from the beacon node to a local execution client and mirrored to multiple sync proxies:
+### Nginx
+
+The sync proxy can also be used with nginx, with requests proxied from the beacon node to a local execution client and mirrored to multiple sync proxies.
 
 ![nginx setup overview](docs/nginx-setup.png)
 
-An example nginx config for this setup can be found [here](docs/sync_proxy.example.conf).
+An example nginx config like this can be run with the sync proxy:
+<details>
+<summary><code>/etc/nginx/conf.d/sync_proxy.conf</code></summary>
+
+```ini
+server {
+        listen 8552;
+        listen [::]:8552;
+
+        server_name _;
+
+        location / {
+                mirror /sync_proxy_1;
+                mirror /sync_proxy_2;
+                mirror /sync_proxy_3;
+
+                proxy_pass http://localhost:8551;
+                proxy_set_header X-Real-IP $remote_addr;
+                proxy_set_header Host $host;
+                proxy_set_header Referer $http_referer;
+                proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        }
+
+        #
+        # execution nodes
+        #
+        location = /sync_proxy_1 {
+                internal;
+                proxy_pass http://sync-proxy-1.local:8552$request_uri;
+                proxy_connect_timeout 100ms;
+                proxy_read_timeout 100ms;
+        }
+
+        location = /sync_proxy_2 {
+                internal;
+                proxy_pass http://sync-proxy-2.local:8552$request_uri;
+                proxy_connect_timeout 100ms;
+                proxy_read_timeout 100ms;
+        }
+
+        location = /sync_proxy_3 {
+                internal;
+                proxy_pass http://sync-proxy-3.local:8552$request_uri;
+                proxy_connect_timeout 100ms;
+                proxy_read_timeout 100ms;
+        }
+```
+</details>
 
 ## Caveats
 
-The sync proxy attempts to sync to best beacon node based on the slot number in a custom rpc call sent by the open source [flashbots prysm client](https://github.com/flashbots/prysm). If not using the flashbots prysm client the sync proxy will sync to the beacon node that sends the sync proxy a request first. It will only switch if the first beacon node stops sending requests. 
+The sync proxy attempts to sync to the beacon node with the highest slot number in a custom rpc call sent by the [flashbots prysm client](https://github.com/flashbots/prysm). If not using the flashbots prysm fork the sync proxy will accept requests from the first beacon node that sent a request. It will only switch if that beacon node stops sending requests. 
 
-The sync proxy attempts to identify the best beacon node based on the originating host of the request. If you are using the same host for multiple beacon nodes to sync the EL, the sync proxy won't be able to distinguish between the beacon nodes and will proxy all requests from the same host to the ELs.
+The sync proxy also attempts to identify the best beacon node based on the originating host of the request. If you are using the same host for multiple beacon nodes to sync the EL, the sync proxy won't be able to distinguish between the beacon nodes and will proxy all requests from the same host to the configured ELs.
