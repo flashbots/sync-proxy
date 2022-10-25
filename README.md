@@ -27,7 +27,7 @@ To run with an EL endpoint:
 ./sync-proxy -builders="localhost:8551,localhost:8552"
 ```
 
-This can also be used with nginx, with requests proxied to a local execution client and mirrored to multiple sync proxies:
+This can also be used with nginx, with requests proxied from the beacon node to a local execution client and mirrored to multiple sync proxies:
 
 ![nginx setup overview](docs/nginx-setup.png)
 
