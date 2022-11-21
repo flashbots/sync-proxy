@@ -256,6 +256,19 @@ func (p *ProxyService) callBuilders(req *http.Request, requestJSON JSONRPCReques
 		p.maybeLogReponseDifferences(requestJSON.Method, primaryReponse, responses)
 	}
 
+	if primaryReponse.Header.Get("Content-Encoding") == "gzip" {
+		// gzip body of primary response
+		var buf bytes.Buffer
+		gz := gzip.NewWriter(&buf)
+		if _, err := gz.Write(primaryReponse.Body); err != nil {
+			return primaryReponse, err
+		}
+		if err := gz.Close(); err != nil {
+			return primaryReponse, err
+		}
+		primaryReponse.Body = buf.Bytes()
+	}
+
 	return primaryReponse, nil
 }
 
