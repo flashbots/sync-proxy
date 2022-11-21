@@ -28,10 +28,11 @@ var (
 )
 
 type BuilderResponse struct {
-	Header     http.Header
-	Body       []byte
-	URL        *url.URL
-	StatusCode int
+	Header           http.Header
+	Body             []byte
+	UncompressedBody []byte
+	URL              *url.URL
+	StatusCode       int
 }
 
 // ProxyEntry is an entry consisting of a URL and a proxy
@@ -206,14 +207,6 @@ func (p *ProxyService) callBuilders(req *http.Request, requestJSON JSONRPCReques
 			}
 
 			reader := resp.Body
-			if !resp.Uncompressed && resp.Header.Get("Content-Encoding") == "gzip" {
-				reader, err = gzip.NewReader(resp.Body)
-				if err != nil {
-					p.log.WithError(err).Error("failed to decompress response body")
-					return
-				}
-			}
-
 			responseBytes, err := io.ReadAll(reader)
 			if err != nil {
 				p.log.WithError(err).Error("failed to read response body")
@@ -221,24 +214,39 @@ func (p *ProxyService) callBuilders(req *http.Request, requestJSON JSONRPCReques
 			}
 			defer resp.Body.Close()
 
+			var uncompressedResponseBytes []byte
+			if !resp.Uncompressed && resp.Header.Get("Content-Encoding") == "gzip" {
+				reader, err = gzip.NewReader(io.NopCloser(bytes.NewBuffer(responseBytes)))
+				if err != nil {
+					p.log.WithError(err).Error("failed to decompress response body")
+					return
+				}
+				uncompressedResponseBytes, err = io.ReadAll(reader)
+				if err != nil {
+					p.log.WithError(err).Error("failed to read decompressed response body")
+					return
+				}
+			}
+
 			mu.Lock()
 			defer mu.Unlock()
 
-			responses = append(responses, BuilderResponse{Header: resp.Header, Body: responseBytes, URL: url, StatusCode: resp.StatusCode})
+			builderResponse := BuilderResponse{Header: resp.Header, Body: responseBytes, UncompressedBody: uncompressedResponseBytes, URL: url, StatusCode: resp.StatusCode}
+			responses = append(responses, builderResponse)
 
 			p.log.WithFields(logrus.Fields{
 				"method":   requestJSON.Method,
 				"id":       requestJSON.ID,
-				"response": string(responseBytes),
+				"response": string(getResponseBody(builderResponse)),
 				"url":      url.String(),
 			}).Debug("response received from builder")
 
 			// Use response from first EL endpoint specificed and fallback if response not found
 			if numSuccessRequestsToBuilder == 0 {
-				primaryReponse = BuilderResponse{Header: resp.Header, Body: responseBytes, URL: url, StatusCode: resp.StatusCode}
+				primaryReponse = builderResponse
 			}
 			if url.String() == p.builderEntries[0].URL.String() {
-				primaryReponse = BuilderResponse{Header: resp.Header, Body: responseBytes, URL: url, StatusCode: resp.StatusCode}
+				primaryReponse = builderResponse
 			}
 
 			numSuccessRequestsToBuilder++
@@ -254,19 +262,6 @@ func (p *ProxyService) callBuilders(req *http.Request, requestJSON JSONRPCReques
 
 	if isEngineRequest(requestJSON.Method) {
 		p.maybeLogReponseDifferences(requestJSON.Method, primaryReponse, responses)
-	}
-
-	if primaryReponse.Header.Get("Content-Encoding") == "gzip" {
-		// gzip body of primary response
-		var buf bytes.Buffer
-		gz := gzip.NewWriter(&buf)
-		if _, err := gz.Write(primaryReponse.Body); err != nil {
-			return primaryReponse, err
-		}
-		if err := gz.Close(); err != nil {
-			return primaryReponse, err
-		}
-		primaryReponse.Body = buf.Bytes()
 	}
 
 	return primaryReponse, nil
@@ -364,7 +359,7 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 }
 
 func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse BuilderResponse, responses []BuilderResponse) {
-	expectedStatus, err := extractStatus(method, primaryResponse.Body)
+	expectedStatus, err := extractStatus(method,  getResponseBody(primaryResponse))
 	if err != nil {
 		p.log.WithError(err).WithFields(logrus.Fields{
 			"method": method,
@@ -381,7 +376,7 @@ func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse
 			continue
 		}
 
-		status, err := extractStatus(method, response.Body)
+		status, err := extractStatus(method, getResponseBody(response))
 		if err != nil {
 			p.log.WithError(err).WithFields(logrus.Fields{
 				"method": method,
