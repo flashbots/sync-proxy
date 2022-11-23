@@ -95,3 +95,10 @@ func extractStatus(method string, response []byte) (string, error) {
 		return "", nil // not interested in other engine api calls
 	}
 }
+
+func getResponseBody(response BuilderResponse) []byte {
+	if len(response.UncompressedBody) != 0 {
+		return response.UncompressedBody
+	}
+	return response.Body
+}
