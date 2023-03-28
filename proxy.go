@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"strings"
 	"sync"
 	"time"
 
@@ -22,8 +23,8 @@ var (
 	errNoBuilders                  = errors.New("no builders specified")
 	errNoSuccessfulBuilderResponse = errors.New("no successful builder response")
 
-	newPayload        = "engine_newPayloadV1"
-	fcU               = "engine_forkchoiceUpdatedV1"
+	newPayload        = "engine_newPayload"
+	fcU               = "engine_forkchoiceUpdated"
 	builderAttributes = "builder_payloadAttributes"
 )
 
@@ -301,7 +302,7 @@ func (p *ProxyService) shouldFilterRequest(remoteHost, method string) bool {
 		return true
 	}
 
-	if !(method == newPayload) && !p.isFromBestBeaconEntry(remoteHost) {
+	if !strings.HasPrefix(method, newPayload) && !p.isFromBestBeaconEntry(remoteHost) {
 		return true
 	}
 
@@ -359,7 +360,7 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 }
 
 func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse BuilderResponse, responses []BuilderResponse) {
-	expectedStatus, err := extractStatus(method,  getResponseBody(primaryResponse))
+	expectedStatus, err := extractStatus(method, getResponseBody(primaryResponse))
 	if err != nil {
 		p.log.WithError(err).WithFields(logrus.Fields{
 			"method": method,

@@ -73,10 +73,10 @@ func getRemoteHost(r *http.Request) string {
 func extractStatus(method string, response []byte) (string, error) {
 	var responseJSON JSONRPCResponse
 
-	switch method {
-	case newPayload:
+	switch {
+	case strings.HasPrefix(method, newPayload):
 		responseJSON.Result = new(PayloadStatusV1)
-	case fcU:
+	case strings.HasPrefix(method, fcU):
 		responseJSON.Result = new(ForkChoiceResponse)
 	default:
 		return "", nil // not interested in other engine api calls
