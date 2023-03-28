@@ -3,10 +3,8 @@ package main
 import (
 	"encoding/json"
 
-	"github.com/ethereum/go-ethereum/core/beacon"
-	"github.com/prysmaticlabs/prysm/v3/proto/builder"
-	// "github.com/ethereum/go-ethereum/common/hexutil"
-	// "github.com/flashbots/go-boost-utils/types"
+	"github.com/ethereum/go-ethereum/beacon/engine"
+	"github.com/prysmaticlabs/prysm/v4/proto/builder"
 )
 
 type JSONRPCRequest struct {
@@ -25,11 +23,11 @@ type JSONRPCResponse struct {
 // PayloadID is an identifier of the payload build process
 type PayloadID [8]byte
 
-type PayloadStatusV1 = beacon.PayloadStatusV1
+type PayloadStatusV1 = engine.PayloadStatusV1 // same response as newPayloadV2
 
-type ForkChoiceResponse = beacon.ForkChoiceResponse
+type ForkChoiceResponse = engine.ForkChoiceResponse // same response as forkchoiceUpdatedV2
 
-type BuilderPayloadAttributes = builder.BuilderPayloadAttributes
+type BuilderPayloadAttributes = builder.BuilderPayloadAttributes // only interested in slot number, no need to unmarshal v2 withdrawals
 
 func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var msg struct {
