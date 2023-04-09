@@ -2,6 +2,8 @@ package main
 
 import (
 	"encoding/json"
+	"fmt"
+	"strings"
 
 	"github.com/ethereum/go-ethereum/beacon/engine"
 	"github.com/prysmaticlabs/prysm/v4/proto/builder"
@@ -31,12 +33,14 @@ type BuilderPayloadAttributes = builder.BuilderPayloadAttributes // only interes
 
 type PayloadAttributes = engine.PayloadAttributes // only interested in timestamp
 
+type ExecutionPayload = engine.ExecutableData
+
 func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var msg struct {
-		JSONRPC string          `json:"jsonrpc"`
-		Method  string          `json:"method"`
-		Params  json.RawMessage `json:"params,omitempty"`
-		ID      int             `json:"id"`
+		JSONRPC string            `json:"jsonrpc"`
+		Method  string            `json:"method"`
+		Params  []json.RawMessage `json:"params,omitempty"`
+		ID      int               `json:"id"`
 	}
 
 	if err := json.Unmarshal(data, &msg); err != nil {
@@ -44,19 +48,42 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	}
 
 	var params []any
-	switch msg.Method {
-	case builderAttributes:
-		var payloadParams []*BuilderPayloadAttributes
-		if err := json.Unmarshal(msg.Params, &payloadParams); err != nil {
+	switch {
+	case msg.Method == builderAttributes:
+		if len(msg.Params) != 1 {
+			return fmt.Errorf("expected 1 param for builderAttributes")
+		}
+		var payloadParams BuilderPayloadAttributes
+		if err := json.Unmarshal(msg.Params[0], &payloadParams); err != nil {
 			return err
 		}
-		for _, p := range payloadParams {
-			params = append(params, p)
+
+		params = append(params, &payloadParams)
+	case strings.HasPrefix(msg.Method, fcU):
+		if len(msg.Params) != 2 {
+			return fmt.Errorf("expected 2 params for forkchoiceUpdated")
 		}
+		params = append(params, msg.Params[0])
+
+		var payloadAttributes PayloadAttributes
+		if err := json.Unmarshal(msg.Params[1], &payloadAttributes); string(msg.Params[1]) != "null" && err != nil {
+			return err
+		}
+
+		params = append(params, &payloadAttributes)
+	case strings.HasPrefix(msg.Method, newPayload):
+		if len(msg.Params) != 1 {
+			return fmt.Errorf("expected 1 param for newPayload")
+		}
+		var executionPayload ExecutionPayload
+		if err := json.Unmarshal(msg.Params[0], &executionPayload); err != nil {
+			return err
+		}
+		params = append(params, &executionPayload)
 	default:
 		if msg.Params != nil {
-			if err := json.Unmarshal(msg.Params, &params); err != nil {
-				return err
+			for _, p := range msg.Params {
+				params = append(params, p)
 			}
 		}
 	}
