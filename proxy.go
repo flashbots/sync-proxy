@@ -46,6 +46,7 @@ type ProxyEntry struct {
 type BeaconEntry struct {
 	Addr        string
 	CurrentSlot uint64
+	Timestamp   uint64
 }
 
 // ProxyServiceOpts contains options for the ProxyService
@@ -324,17 +325,13 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 		log.WithFields(logrus.Fields{
 			"newAddr": requestAddr,
 		}).Info("setting new beacon node to sync to")
-		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, CurrentSlot: 0}
+		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, CurrentSlot: 0, Timestamp: 0}
 	}
 
 	// update to compare differences in slot number
 	if request.Method == builderAttributes {
 		switch v := request.Params[0].(type) {
 		case *BuilderPayloadAttributes:
-			log := p.log.WithFields(logrus.Fields{
-				"newSlot": v.Slot,
-				"addr":    requestAddr,
-			})
 			slot := uint64(v.Slot)
 			if p.bestBeaconEntry.CurrentSlot < slot {
 				// update best beacon entry if new slot is greater than current slot with buffer of 1 slot
@@ -348,7 +345,22 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 						"newAddr": requestAddr,
 					}).Info("switching beacon node to sync to")
 				}
-				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: slot, Addr: requestAddr}
+				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: slot, Addr: requestAddr, Timestamp: p.bestBeaconEntry.Timestamp}
+			}
+		}
+	}
+	if strings.HasPrefix(request.Method, fcU) {
+		switch v := request.Params[1].(type) {
+		case *PayloadAttributes:
+			timestamp := v.Timestamp
+			if p.bestBeaconEntry.Timestamp < timestamp {
+				log.WithFields(logrus.Fields{
+					"oldTimestamp": p.bestBeaconEntry.Timestamp,
+					"oldAddr":      p.bestBeaconEntry.Addr,
+					"newTimestamp": timestamp,
+					"newAddr":      requestAddr,
+				}).Info("switching beacon node to sync to")
+				p.bestBeaconEntry = &BeaconEntry{Timestamp: timestamp, Addr: requestAddr, CurrentSlot: p.bestBeaconEntry.CurrentSlot}
 			}
 		}
 	}

@@ -29,6 +29,8 @@ type ForkChoiceResponse = engine.ForkChoiceResponse // same response as forkchoi
 
 type BuilderPayloadAttributes = builder.BuilderPayloadAttributes // only interested in slot number, no need to unmarshal v2 withdrawals
 
+type PayloadAttributes = engine.PayloadAttributes // only interested in timestamp
+
 func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var msg struct {
 		JSONRPC string          `json:"jsonrpc"`
