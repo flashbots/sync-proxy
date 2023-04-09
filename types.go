@@ -33,8 +33,6 @@ type BuilderPayloadAttributes = builder.BuilderPayloadAttributes // only interes
 
 type PayloadAttributes = engine.PayloadAttributes // only interested in timestamp
 
-type ExecutionPayload = engine.ExecutableData
-
 func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var msg struct {
 		JSONRPC string            `json:"jsonrpc"`
