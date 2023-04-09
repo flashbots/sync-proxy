@@ -348,10 +348,23 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: slot, Addr: requestAddr, Timestamp: p.bestBeaconEntry.Timestamp}
 			}
 		}
-	}
-	if strings.HasPrefix(request.Method, fcU) {
+	} else if strings.HasPrefix(request.Method, fcU) {
 		switch v := request.Params[1].(type) {
 		case *PayloadAttributes:
+			timestamp := v.Timestamp
+			if p.bestBeaconEntry.Timestamp < timestamp {
+				log.WithFields(logrus.Fields{
+					"oldTimestamp": p.bestBeaconEntry.Timestamp,
+					"oldAddr":      p.bestBeaconEntry.Addr,
+					"newTimestamp": timestamp,
+					"newAddr":      requestAddr,
+				}).Info("switching beacon node to sync to")
+				p.bestBeaconEntry = &BeaconEntry{Timestamp: timestamp, Addr: requestAddr, CurrentSlot: p.bestBeaconEntry.CurrentSlot}
+			}
+		}
+	} else if strings.HasPrefix(request.Method, newPayload) {
+		switch v := request.Params[0].(type) {
+		case *ExecutionPayload:
 			timestamp := v.Timestamp
 			if p.bestBeaconEntry.Timestamp < timestamp {
 				log.WithFields(logrus.Fields{
