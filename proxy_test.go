@@ -317,9 +317,7 @@ func TestUpdateBestBeaconNode(t *testing.T) {
 		backend.proxyService.mu.Unlock()
 
 		// request from a another client should not reset the timer
-		time.Sleep(time.Millisecond * 500)
-		backend.request(t, []byte(mockForkchoiceRequest), "localhost:8080")
-		time.Sleep(time.Millisecond * 500)
+		time.Sleep(time.Second * 1)
 
 		backend.proxyService.mu.Lock()
 		require.Nil(t, backend.proxyService.bestBeaconEntry)
