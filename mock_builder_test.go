@@ -15,11 +15,11 @@ func Test_mockBuilder(t *testing.T) {
 
 		builder.Response = []byte(mockNewPayloadResponseValid)
 
-		req, err := http.NewRequest("POST", "/", bytes.NewReader([]byte(`{"jsonrpc":"2.0","method":"engine_newPayload","params":["0x01"],"id":67}`)))
+		req, err := http.NewRequest("POST", "/", bytes.NewReader([]byte(mockNewPayloadRequest)))
 		require.NoError(t, err)
 		rr := httptest.NewRecorder()
 		builder.getRouter().ServeHTTP(rr, req)
 		require.Equal(t, http.StatusOK, rr.Code)
-		require.Equal(t, builder.requestCount["engine_newPayload"], 1)
+		require.Equal(t, 1, builder.requestCount["engine_newPayloadV1"])
 	})
 }
