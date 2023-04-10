@@ -50,27 +50,24 @@ type BeaconEntry struct {
 
 // ProxyServiceOpts contains options for the ProxyService
 type ProxyServiceOpts struct {
-	ListenAddr        string
-	Builders          []*url.URL
-	BuilderTimeout    time.Duration
-	Proxies           []*url.URL
-	ProxyTimeout      time.Duration
-	BeaconEntryExpiry time.Duration
-	Log               *logrus.Entry
+	ListenAddr     string
+	Builders       []*url.URL
+	BuilderTimeout time.Duration
+	Proxies        []*url.URL
+	ProxyTimeout   time.Duration
+	Log            *logrus.Entry
 }
 
 // ProxyService is a service that proxies requests from beacon node to builders
 type ProxyService struct {
-	listenAddr       string
-	srv              *http.Server
-	builderEntries   []*ProxyEntry
-	proxyEntries     []*ProxyEntry
-	bestBeaconEntry  *BeaconEntry
-	beaconExpiryTime time.Duration
+	listenAddr      string
+	srv             *http.Server
+	builderEntries  []*ProxyEntry
+	proxyEntries    []*ProxyEntry
+	bestBeaconEntry *BeaconEntry
 
-	log   *logrus.Entry
-	timer *time.Timer
-	mu    sync.Mutex
+	log *logrus.Entry
+	mu  sync.Mutex
 }
 
 // NewProxyService creates a new ProxyService
@@ -92,12 +89,10 @@ func NewProxyService(opts ProxyServiceOpts) (*ProxyService, error) {
 	}
 
 	return &ProxyService{
-		listenAddr:       opts.ListenAddr,
-		builderEntries:   builderEntries,
-		proxyEntries:     proxyEntries,
-		log:              opts.Log,
-		timer:            time.NewTimer(opts.BeaconEntryExpiry),
-		beaconExpiryTime: opts.BeaconEntryExpiry,
+		listenAddr:     opts.ListenAddr,
+		builderEntries: builderEntries,
+		proxyEntries:   proxyEntries,
+		log:            opts.Log,
 	}, nil
 }
 
@@ -106,25 +101,6 @@ func (p *ProxyService) StartHTTPServer() error {
 	if p.srv != nil {
 		return errServerAlreadyRunning
 	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-
-	// Start background task to make sure we don't get stuck
-	// with a beacon node that stop sending requests
-	go func() {
-		for {
-			select {
-			case <-ctx.Done():
-				p.timer.Stop()
-				return
-			case <-p.timer.C:
-				p.mu.Lock()
-				p.bestBeaconEntry = nil
-				p.mu.Unlock()
-			}
-		}
-	}()
 
 	p.srv = &http.Server{
 		Addr:    p.listenAddr,
@@ -283,9 +259,17 @@ func (p *ProxyService) callProxies(req *http.Request, bodyBytes []byte) {
 
 func (p *ProxyService) checkBeaconRequest(bodyBytes []byte, remoteHost string) (JSONRPCRequest, error) {
 	var requestJSON JSONRPCRequest
-	if err := json.Unmarshal(bodyBytes, &requestJSON); err != nil {
-		p.log.WithError(err).WithField("request", string(bodyBytes)).Error("failed to decode request body json")
-		return requestJSON, err
+	var batchRequestJSON []JSONRPCRequest
+	err := json.Unmarshal(bodyBytes, &requestJSON)
+
+	if err != nil {
+		// may be batch request
+		if err := json.Unmarshal(bodyBytes, &batchRequestJSON); err != nil {
+			p.log.WithError(err).WithField("request", string(bodyBytes)).Error("failed to decode request body json")
+			return requestJSON, err
+		}
+		// not interested in batch requests
+		return requestJSON, nil
 	}
 
 	p.log.WithFields(logrus.Fields{
@@ -294,6 +278,7 @@ func (p *ProxyService) checkBeaconRequest(bodyBytes []byte, remoteHost string) (
 	}).Debug("request received from beacon node")
 
 	p.updateBestBeaconEntry(requestJSON, remoteHost)
+
 	return requestJSON, nil
 }
 
@@ -349,11 +334,6 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 			"newAddr":      requestAddr,
 		}).Info(fmt.Sprintf("new timestamp from %s request received from beacon node", request.Method))
 		p.bestBeaconEntry = &BeaconEntry{Timestamp: timestamp, Addr: requestAddr}
-	}
-
-	// reset expiry time for the current best entry
-	if requestAddr == p.bestBeaconEntry.Addr {
-		p.timer.Reset(p.beaconExpiryTime)
 	}
 }
 
