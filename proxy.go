@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -23,9 +24,8 @@ var (
 	errNoBuilders                  = errors.New("no builders specified")
 	errNoSuccessfulBuilderResponse = errors.New("no successful builder response")
 
-	newPayload        = "engine_newPayload"
-	fcU               = "engine_forkchoiceUpdated"
-	builderAttributes = "builder_payloadAttributes"
+	newPayload = "engine_newPayload"
+	fcU        = "engine_forkchoiceUpdated"
 )
 
 type BuilderResponse struct {
@@ -42,11 +42,10 @@ type ProxyEntry struct {
 	Proxy *httputil.ReverseProxy
 }
 
-// BeaconEntry consists of a URL from a beacon client or proxy and its current slot
+// BeaconEntry consists of a URL from a beacon client and latest timestamp recorded
 type BeaconEntry struct {
-	Addr        string
-	CurrentSlot uint64
-	Timestamp   uint64
+	Addr      string
+	Timestamp uint64
 }
 
 // ProxyServiceOpts contains options for the ProxyService
@@ -299,7 +298,7 @@ func (p *ProxyService) checkBeaconRequest(bodyBytes []byte, remoteHost string) (
 }
 
 func (p *ProxyService) shouldFilterRequest(remoteHost, method string) bool {
-	if !isEngineOrBuilderRequest(method) {
+	if !isEngineRequest(method) {
 		return true
 	}
 
@@ -324,58 +323,32 @@ func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr
 	if p.bestBeaconEntry == nil {
 		log.WithFields(logrus.Fields{
 			"newAddr": requestAddr,
-		}).Info("setting new beacon node to sync to")
-		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, CurrentSlot: 0, Timestamp: 0}
+		}).Info("request received from beacon node")
+		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, Timestamp: 0}
 	}
 
-	// update to compare differences in slot number
-	if request.Method == builderAttributes {
-		switch v := request.Params[0].(type) {
-		case *BuilderPayloadAttributes:
-			slot := uint64(v.Slot)
-			if p.bestBeaconEntry.CurrentSlot < slot {
-				// update best beacon entry if new slot is greater than current slot with buffer of 1 slot
-				// avoids too much switching between beacon nodes are on the same slot but request slightly earlier
-				buffer := uint64(1)
-				if p.bestBeaconEntry.Addr != requestAddr && p.bestBeaconEntry.CurrentSlot+buffer < slot {
-					log.WithFields(logrus.Fields{
-						"oldSlot": p.bestBeaconEntry.CurrentSlot,
-						"oldAddr": p.bestBeaconEntry.Addr,
-						"newSlot": v.Slot,
-						"newAddr": requestAddr,
-					}).Info("switching beacon node to sync to")
-				}
-				p.bestBeaconEntry = &BeaconEntry{CurrentSlot: slot, Addr: requestAddr, Timestamp: p.bestBeaconEntry.Timestamp}
-			}
-		}
-	} else if strings.HasPrefix(request.Method, fcU) {
+	// update to compare differences in timestamp
+	var timestamp uint64
+	if strings.HasPrefix(request.Method, fcU) {
 		switch v := request.Params[1].(type) {
 		case *PayloadAttributes:
-			timestamp := v.Timestamp
-			if p.bestBeaconEntry.Timestamp < timestamp {
-				log.WithFields(logrus.Fields{
-					"oldTimestamp": p.bestBeaconEntry.Timestamp,
-					"oldAddr":      p.bestBeaconEntry.Addr,
-					"newTimestamp": timestamp,
-					"newAddr":      requestAddr,
-				}).Info("switching beacon node to sync to")
-				p.bestBeaconEntry = &BeaconEntry{Timestamp: timestamp, Addr: requestAddr, CurrentSlot: p.bestBeaconEntry.CurrentSlot}
-			}
+			timestamp = v.Timestamp
 		}
 	} else if strings.HasPrefix(request.Method, newPayload) {
 		switch v := request.Params[0].(type) {
 		case *ExecutionPayload:
-			timestamp := v.Timestamp
-			if p.bestBeaconEntry.Timestamp < timestamp {
-				log.WithFields(logrus.Fields{
-					"oldTimestamp": p.bestBeaconEntry.Timestamp,
-					"oldAddr":      p.bestBeaconEntry.Addr,
-					"newTimestamp": timestamp,
-					"newAddr":      requestAddr,
-				}).Info("switching beacon node to sync to")
-				p.bestBeaconEntry = &BeaconEntry{Timestamp: timestamp, Addr: requestAddr, CurrentSlot: p.bestBeaconEntry.CurrentSlot}
-			}
+			timestamp = v.Timestamp
 		}
+	}
+
+	if p.bestBeaconEntry.Timestamp < timestamp {
+		log.WithFields(logrus.Fields{
+			"oldTimestamp": p.bestBeaconEntry.Timestamp,
+			"oldAddr":      p.bestBeaconEntry.Addr,
+			"newTimestamp": timestamp,
+			"newAddr":      requestAddr,
+		}).Info(fmt.Sprintf("new timestamp from %s request received from beacon node", request.Method))
+		p.bestBeaconEntry = &BeaconEntry{Timestamp: timestamp, Addr: requestAddr}
 	}
 
 	// reset expiry time for the current best entry

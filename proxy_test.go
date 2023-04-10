@@ -266,14 +266,31 @@ func TestBuilders(t *testing.T) {
 
 func TestUpdateBestBeaconNode(t *testing.T) {
 	var data JSONRPCRequest
-	json.Unmarshal([]byte(mockPayloadAttributeRequest), &data)
+	json.Unmarshal([]byte(mockForkchoiceRequestWithPayloadAttributesV1), &data)
 
-	data.Params[0].(*BuilderPayloadAttributes).Slot = 10
-	higherSlot, err := json.Marshal(data)
+	data.Params[1].(*PayloadAttributes).Timestamp = 10
+	higherTimestampFcu, err := json.Marshal(data)
 	require.NoError(t, err)
 
-	data.Params[0].(*BuilderPayloadAttributes).Slot = 1
-	lowerSlot, err := json.Marshal(data)
+	json.Unmarshal([]byte(mockForkchoiceRequestWithPayloadAttributesV2), &data)
+
+	data.Params[1].(*PayloadAttributes).Timestamp = 1
+	lowerTimestampFcu, err := json.Marshal(data)
+	require.NoError(t, err)
+
+	json.Unmarshal([]byte(mockForkchoiceRequest), &data)
+
+	emptyFcu, err := json.Marshal(data)
+	require.NoError(t, err)
+
+	json.Unmarshal([]byte(mockNewPayloadRequest), &data)
+
+	data.Params[0].(*ExecutionPayload).Timestamp = 10
+	higherTimestampPayload, err := json.Marshal(data)
+	require.NoError(t, err)
+
+	data.Params[0].(*ExecutionPayload).Timestamp = 1
+	lowerTimestampPayload, err := json.Marshal(data)
 	require.NoError(t, err)
 
 	t.Run("should update address to sync if sync target address is not set", func(t *testing.T) {
@@ -283,41 +300,43 @@ func TestUpdateBestBeaconNode(t *testing.T) {
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 	})
 
-	t.Run("should update address to sync if higher current slot is received", func(t *testing.T) {
+	t.Run("should update address to sync if higher current timestamp is received", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 
-		backend.request(t, lowerSlot, from)
+		backend.request(t, lowerTimestampFcu, from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
-		require.Equal(t, uint64(1), backend.proxyService.bestBeaconEntry.CurrentSlot)
+		require.Equal(t, backend.proxyService.bestBeaconEntry.Timestamp, uint64(1))
 
-		backend.request(t, higherSlot, from)
+		backend.request(t, higherTimestampFcu, from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
-		require.Equal(t, uint64(10), backend.proxyService.bestBeaconEntry.CurrentSlot)
+		require.Equal(t, uint64(10), backend.proxyService.bestBeaconEntry.Timestamp)
 	})
 
-	t.Run("should not update address to sync if slot received is not higher than previously received", func(t *testing.T) {
+	t.Run("should not update address to sync if timestamp received is not higher than previously received", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 
-		backend.request(t, higherSlot, from)
+		backend.request(t, higherTimestampFcu, from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
-		require.Equal(t, uint64(10), backend.proxyService.bestBeaconEntry.CurrentSlot)
+		require.Equal(t, backend.proxyService.bestBeaconEntry.Timestamp, uint64(10))
 
-		backend.request(t, lowerSlot, from)
+		backend.request(t, higherTimestampFcu, from)
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
-		require.Equal(t, uint64(10), backend.proxyService.bestBeaconEntry.CurrentSlot)
+		require.Equal(t, backend.proxyService.bestBeaconEntry.Timestamp, uint64(10))
 	})
 
 	t.Run("sync target address should be unset if request is not sent within timeout", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 		go backend.proxyService.StartHTTPServer() // start background task
-		backend.request(t, []byte(mockPayloadAttributeRequest), from)
+		backend.request(t, []byte(higherTimestampPayload), from)
 
 		backend.proxyService.mu.Lock()
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
 		backend.proxyService.mu.Unlock()
 
-		// request from a another client should not reset the timer
-		time.Sleep(time.Second * 1)
+		// request from an empty fcu from another address should not reset the timer
+		time.Sleep(time.Millisecond * 500)
+		backend.request(t, []byte(emptyFcu), "127.0.0.1:1234")
+		time.Sleep(time.Millisecond * 500)
 
 		backend.proxyService.mu.Lock()
 		require.Nil(t, backend.proxyService.bestBeaconEntry)
@@ -327,7 +346,7 @@ func TestUpdateBestBeaconNode(t *testing.T) {
 	t.Run("sync target address should still be set if request is received within timeout", func(t *testing.T) {
 		backend := newTestBackend(t, 1, 0, time.Second, time.Second, time.Second)
 		go backend.proxyService.StartHTTPServer() // start background task
-		backend.request(t, []byte(mockPayloadAttributeRequest), from)
+		backend.request(t, []byte(higherTimestampFcu), from)
 
 		backend.proxyService.mu.Lock()
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
@@ -335,11 +354,12 @@ func TestUpdateBestBeaconNode(t *testing.T) {
 
 		// request from the best client should reset the timer
 		time.Sleep(time.Millisecond * 500)
-		backend.request(t, []byte(mockPayloadAttributeRequest), from)
+		backend.request(t, []byte(lowerTimestampPayload), from)
 		time.Sleep(time.Millisecond * 500)
 
 		backend.proxyService.mu.Lock()
 		require.NotNil(t, backend.proxyService.bestBeaconEntry)
+		require.Equal(t, backend.proxyService.bestBeaconEntry.Timestamp, uint64(10))
 		backend.proxyService.mu.Unlock()
 	})
 }

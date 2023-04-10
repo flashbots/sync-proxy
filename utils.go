@@ -49,14 +49,6 @@ func isEngineRequest(method string) bool {
 	return strings.HasPrefix(method, "engine_")
 }
 
-func isBuilderRequest(method string) bool {
-	return strings.HasPrefix(method, "builder_")
-}
-
-func isEngineOrBuilderRequest(method string) bool {
-	return isEngineRequest(method) || isBuilderRequest(method)
-}
-
 func getRemoteHost(r *http.Request) string {
 	var remoteHost string
 	if xff := r.Header.Get("X-Forwarded-For"); xff != "" {
