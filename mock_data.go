@@ -1,19 +1,6 @@
 package main
 
 var (
-	mockPayloadAttributeRequest = `{
-		"jsonrpc": "2.0",
-		"method": "builder_payloadAttributes",
-		"params":[
-			{
-				"timestamp":"0x6303c7bc",
-				"prevRandao":"0xc37d470e40330c070aa426bed9281ea6cf5442bbc089bc477df3f6f5ce0cbfe0",
-				"slot":1182052,
-				"blockHash":"0x1056a5902daf6b659010a1e25347d8ee9a912329db045df0afa0504a284fa5c3"
-			}
-		],
-		"id": 1
-	}`
 	mockNewPayloadRequest = `{
 		"jsonrpc": "2.0",
 		"method": "engine_newPayloadV1",
@@ -55,7 +42,7 @@ var (
 		  "validationError": ""
 		}
 	}`
-	mockForkchoiceRequest = `{
+	mockForkchoiceRequestWithPayloadAttributesV1 = `{
 		"jsonrpc": "2.0",
 		"method": "engine_forkchoiceUpdatedV1",
 		"params": [
@@ -69,6 +56,44 @@ var (
 			"prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
 			"suggestedFeeRecipient": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b"
 		  }
+		],
+		"id": 67
+	}`
+	mockForkchoiceRequestWithPayloadAttributesV2 = `{
+		"jsonrpc": "2.0",
+		"method": "engine_forkchoiceUpdatedV1",
+		"params": [
+		  {
+			"headBlockHash": "0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
+			"safeBlockHash": "0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
+			"finalizedBlockHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+		  },
+		  {
+			"timestamp": "0x5",
+			"prevRandao": "0x0000000000000000000000000000000000000000000000000000000000000000",
+			"suggestedFeeRecipient": "0xa94f5374fce5edbc8e2a8697c15331677e6ebf0b",
+			"withdrawals": [
+				{
+				  "index": "0x237dde",
+				  "validatorIndex": "0x38b37",
+				  "address": "0x8f0844fd51e31ff6bf5babe21dccf7328e19fd9f",
+				  "amount": "0x1a6d92"
+				}
+			]
+		  }
+		],
+		"id": 67
+	}`
+	mockForkchoiceRequest = `{
+		"jsonrpc": "2.0",
+		"method": "engine_forkchoiceUpdatedV1",
+		"params": [
+		  {
+			"headBlockHash": "0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
+			"safeBlockHash": "0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a",
+			"finalizedBlockHash": "0x0000000000000000000000000000000000000000000000000000000000000000"
+		  },
+		  null
 		],
 		"id": 67
 	}`

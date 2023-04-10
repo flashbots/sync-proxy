@@ -56,7 +56,7 @@ func (m *mockServer) getRouter() http.Handler {
 	r := mux.NewRouter()
 
 	// Register handlers
-	r.HandleFunc("/", http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+	r.HandleFunc("/", http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(200)
 		w.Write(m.Response)
 	})).Methods(http.MethodPost)

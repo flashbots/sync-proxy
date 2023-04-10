@@ -85,6 +85,6 @@ server {
 
 ## Caveats
 
-The sync proxy attempts to sync to the beacon node with the highest slot number in a custom rpc call sent by the [flashbots prysm client](https://github.com/flashbots/prysm). If not using the flashbots prysm fork the sync proxy will accept requests from the first beacon node that sent a request. It will only switch if that beacon node stops sending requests. 
+The sync proxy attempts to sync to the beacon node with the highest timestamp in the `engine_forkchoiceUpdated` and `engine_newPayload` calls and forwards to the execution clients.
 
 The sync proxy also attempts to identify the best beacon node based on the originating host of the request. If you are using the same host for multiple beacon nodes to sync the EL, the sync proxy won't be able to distinguish between the beacon nodes and will proxy all requests from the same host to the configured ELs.
