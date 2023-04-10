@@ -284,7 +284,7 @@ func (p *ProxyService) callProxies(req *http.Request, bodyBytes []byte) {
 func (p *ProxyService) checkBeaconRequest(bodyBytes []byte, remoteHost string) (JSONRPCRequest, error) {
 	var requestJSON JSONRPCRequest
 	if err := json.Unmarshal(bodyBytes, &requestJSON); err != nil {
-		p.log.WithError(err).Error("failed to decode request body json")
+		p.log.WithError(err).WithField("request", string(bodyBytes)).Error("failed to decode request body json")
 		return requestJSON, err
 	}
 

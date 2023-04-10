@@ -34,47 +34,50 @@ type ExecutionPayload = engine.ExecutableData
 
 func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var msg struct {
-		JSONRPC string            `json:"jsonrpc"`
-		Method  string            `json:"method"`
-		Params  []json.RawMessage `json:"params,omitempty"`
-		ID      int               `json:"id"`
+		JSONRPC string `json:"jsonrpc"`
+		Method  string `json:"method"`
+		ID      int    `json:"id"`
 	}
 
 	if err := json.Unmarshal(data, &msg); err != nil {
 		return err
 	}
 
+	var requestParams struct {
+		Params []json.RawMessage `json:"params"`
+	}
 	var params []any
 	switch {
 	case strings.HasPrefix(msg.Method, fcU):
-		if len(msg.Params) != 2 {
+		if err := json.Unmarshal(data, &requestParams); err != nil {
+			return err
+		}
+		if len(requestParams.Params) != 2 {
 			return fmt.Errorf("expected 2 params for forkchoiceUpdated")
 		}
-		params = append(params, msg.Params[0])
+		params = append(params, requestParams.Params[0])
 
 		var payloadAttributes PayloadAttributes
-		if string(msg.Params[1]) != "null" {
-			if err := json.Unmarshal(msg.Params[1], &payloadAttributes); err != nil {
+		if string(requestParams.Params[1]) != "null" {
+			if err := json.Unmarshal(requestParams.Params[1], &payloadAttributes); err != nil {
 				return err
 			}
 		}
 
 		params = append(params, &payloadAttributes)
 	case strings.HasPrefix(msg.Method, newPayload):
-		if len(msg.Params) != 1 {
+		if err := json.Unmarshal(data, &requestParams); err != nil {
+			return err
+		}
+		if len(requestParams.Params) != 1 {
 			return fmt.Errorf("expected 1 param for newPayload")
 		}
 		var executionPayload ExecutionPayload
-		if err := json.Unmarshal(msg.Params[0], &executionPayload); err != nil {
+		if err := json.Unmarshal(requestParams.Params[0], &executionPayload); err != nil {
 			return err
 		}
 		params = append(params, &executionPayload)
 	default:
-		if msg.Params != nil {
-			for _, p := range msg.Params {
-				params = append(params, p)
-			}
-		}
 	}
 	*req = JSONRPCRequest{
 		JSONRPC: msg.JSONRPC,
