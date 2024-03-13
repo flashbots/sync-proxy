@@ -263,9 +263,10 @@ func (p *ProxyService) checkBeaconRequest(bodyBytes []byte, remoteHost string) (
 	err := json.Unmarshal(bodyBytes, &requestJSON)
 
 	if err != nil {
+		p.log.WithError(err).Warn("failed to decode request body json, trying to decode as batch request")
 		// may be batch request
 		if err := json.Unmarshal(bodyBytes, &batchRequestJSON); err != nil {
-			p.log.WithError(err).WithField("request", string(bodyBytes)).Error("failed to decode request body json")
+			p.log.WithError(err).Error("failed to decode request body json as batch request")
 			return requestJSON, err
 		}
 		// not interested in batch requests
