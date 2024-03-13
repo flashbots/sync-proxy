@@ -52,7 +52,7 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &requestParams); err != nil {
 			return err
 		}
-		if len(requestParams.Params) <= 2 {
+		if len(requestParams.Params) < 2 {
 			return fmt.Errorf("expected at least 2 params for forkchoiceUpdated")
 		}
 		params = append(params, requestParams.Params[0])
@@ -69,7 +69,7 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &requestParams); err != nil {
 			return err
 		}
-		if len(requestParams.Params) <= 1 {
+		if len(requestParams.Params) < 1 {
 			return fmt.Errorf("expected at least 1 param for newPayload")
 		}
 		var executionPayload ExecutionPayload
