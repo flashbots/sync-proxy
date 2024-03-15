@@ -1,7 +1,11 @@
 # syntax=docker/dockerfile:1
-FROM golang:1.18 as builder
+FROM golang:1.20 as builder
 WORKDIR /build
 ADD . /build/
+# Cache for the modules
+COPY go.mod go.sum ./
+RUN --mount=type=cache,target=/root/.cache/go-build go mod download
+
 RUN --mount=type=cache,target=/root/.cache/go-build make build-for-docker
 
 FROM alpine
