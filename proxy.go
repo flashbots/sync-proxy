@@ -344,7 +344,7 @@ func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse
 		p.log.WithError(err).WithFields(logrus.Fields{
 			"method": method,
 			"url":    primaryResponse.URL.String(),
-			"resp":  string(getResponseBody(primaryResponse)),
+			"resp":   string(getResponseBody(primaryResponse)),
 		}).Error("error reading status from primary EL response")
 	}
 
@@ -362,7 +362,7 @@ func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse
 			p.log.WithError(err).WithFields(logrus.Fields{
 				"method": method,
 				"url":    primaryResponse.URL.String(),
-				"resp":  string(getResponseBody(response)),
+				"resp":   string(getResponseBody(response)),
 			}).Error("error reading status from EL response")
 		}
 
