@@ -41,6 +41,7 @@ require (
 
 require (
 	github.com/ethereum/go-ethereum v1.15.2
+	github.com/golang-jwt/jwt v3.2.2+incompatible
 	github.com/gorilla/mux v1.8.0
 	github.com/sirupsen/logrus v1.9.3
 	github.com/stretchr/testify v1.9.0
