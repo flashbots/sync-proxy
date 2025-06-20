@@ -16,6 +16,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/golang-jwt/jwt/v5"
 	"github.com/sirupsen/logrus"
 )
 
@@ -114,6 +115,38 @@ func (p *ProxyService) StartHTTPServer() error {
 	return err
 }
 
+func getLogFieldsFromRequest(req *http.Request) logrus.Fields {
+	logFields := logrus.Fields{"remoteHost": getRemoteHost(req)}
+
+	token := strings.TrimPrefix(req.Header.Get("Authorization"), "Bearer ")
+	jwtID := getIDClaim(token)
+	if jwtID != "" {
+		logFields["clID"] = jwtID
+	}
+
+	return logFields
+}
+
+// getIDClaim extracts the "id" claim from JWT token
+// Ignores signatures and does not validate the token.
+// Returns empty string if no token, invalid token, or no "id" claim
+func getIDClaim(tokenStr string) string {
+	token, _, err := jwt.NewParser().ParseUnverified(tokenStr, jwt.MapClaims{})
+	if err != nil {
+		return ""
+	}
+
+	if claims, ok := token.Claims.(jwt.MapClaims); ok {
+		if id, exists := claims["id"]; exists {
+			if idStr, ok := id.(string); ok {
+				return idStr
+			}
+		}
+	}
+
+	return ""
+}
+
 func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	// return OK for all GET requests, used for debug
 	if req.Method == http.MethodGet {
@@ -129,15 +162,16 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	log := p.log.WithFields(getLogFieldsFromRequest(req))
 	remoteHost := getRemoteHost(req)
-	requestJSON, err := p.checkBeaconRequest(bodyBytes, remoteHost)
+	requestJSON, err := p.checkBeaconRequest(log, bodyBytes, remoteHost)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
 	if p.shouldFilterRequest(remoteHost, requestJSON.Method) {
-		p.log.WithField("remoteHost", remoteHost).Debug("request filtered from beacon node proxy is not synced to")
+		log.Debug("request filtered from beacon node proxy is not synced to")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -257,28 +291,28 @@ func (p *ProxyService) callProxies(req *http.Request, bodyBytes []byte) {
 	}
 }
 
-func (p *ProxyService) checkBeaconRequest(bodyBytes []byte, remoteHost string) (JSONRPCRequest, error) {
+func (p *ProxyService) checkBeaconRequest(log *logrus.Entry, bodyBytes []byte, remoteHost string) (JSONRPCRequest, error) {
 	var requestJSON JSONRPCRequest
 	var batchRequestJSON []JSONRPCRequest
 	err := json.Unmarshal(bodyBytes, &requestJSON)
 
 	if err != nil {
-		p.log.WithError(err).Warn("failed to decode request body json, trying to decode as batch request")
+		log.WithError(err).Warn("failed to decode request body json, trying to decode as batch request")
 		// may be batch request
 		if err := json.Unmarshal(bodyBytes, &batchRequestJSON); err != nil {
-			p.log.WithError(err).Error("failed to decode request body json as batch request")
+			log.WithError(err).Error("failed to decode request body json as batch request")
 			return requestJSON, err
 		}
 		// not interested in batch requests
 		return requestJSON, nil
 	}
 
-	p.log.WithFields(logrus.Fields{
+	log.WithFields(logrus.Fields{
 		"method": requestJSON.Method,
 		"id":     requestJSON.ID,
 	}).Debug("request received from beacon node")
 
-	p.updateBestBeaconEntry(requestJSON, remoteHost)
+	p.updateBestBeaconEntry(log, requestJSON, remoteHost)
 
 	return requestJSON, nil
 }
@@ -302,14 +336,12 @@ func (p *ProxyService) isFromBestBeaconEntry(remoteHost string) bool {
 }
 
 // updates for which the proxy / beacon should sync to
-func (p *ProxyService) updateBestBeaconEntry(request JSONRPCRequest, requestAddr string) {
+func (p *ProxyService) updateBestBeaconEntry(log *logrus.Entry, request JSONRPCRequest, requestAddr string) {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
 	if p.bestBeaconEntry == nil {
-		log.WithFields(logrus.Fields{
-			"newAddr": requestAddr,
-		}).Info("request received from beacon node")
+		log.Info("request received from beacon node")
 		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, Timestamp: 0}
 	}
 
