@@ -8,8 +8,9 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"time"
 
-	"github.com/golang-jwt/jwt"
+	"github.com/golang-jwt/jwt/v5"
 )
 
 var (
@@ -64,7 +65,7 @@ func generateJWT(secretHex string) (string, error) {
 	token := jwt.New(jwt.SigningMethodHS256)
 	claims := token.Claims.(jwt.MapClaims)
 
-	claims["iat"] = jwt.TimeFunc().Unix()
+	claims["iat"] = time.Now().Unix()
 	if *clientID != "" {
 		claims["id"] = *clientID
 	}
