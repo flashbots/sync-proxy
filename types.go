@@ -2,17 +2,26 @@ package main
 
 import (
 	"encoding/json"
+	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/beacon/engine"
 )
 
+var (
+	ErrUnsupportedMethod = errors.New("unsupported method")
+)
+
 type JSONRPCRequest struct {
-	JSONRPC string `json:"jsonrpc"`
-	Method  string `json:"method"`
-	Params  []any  `json:"params,omitempty"`
-	ID      int    `json:"id"`
+	JSONRPC string        `json:"jsonrpc"`
+	Method  string        `json:"method"`
+	Params  PayloadParams `json:"params,omitempty"`
+	ID      int           `json:"id"`
+}
+
+type PayloadParams struct {
+	SlotStage SlotStage
 }
 
 type JSONRPCResponse struct {
@@ -46,38 +55,33 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 	var requestParams struct {
 		Params []json.RawMessage `json:"params"`
 	}
-	var params []any
+	var params PayloadParams
 	switch {
 	case strings.HasPrefix(msg.Method, fcU):
+		params.SlotStage = FCUOpen
+
 		if err := json.Unmarshal(data, &requestParams); err != nil {
 			return err
 		}
 		if len(requestParams.Params) < 2 {
 			return fmt.Errorf("expected at least 2 params for forkchoiceUpdated")
 		}
-		params = append(params, requestParams.Params[0])
 
-		var payloadAttributes PayloadAttributes
 		if string(requestParams.Params[1]) != "null" {
-			if err := json.Unmarshal(requestParams.Params[1], &payloadAttributes); err != nil {
-				return err
-			}
+			params.SlotStage = FCUClose
 		}
 
-		params = append(params, &payloadAttributes)
 	case strings.HasPrefix(msg.Method, newPayload):
+		params.SlotStage = Payload
+
 		if err := json.Unmarshal(data, &requestParams); err != nil {
 			return err
 		}
 		if len(requestParams.Params) < 1 {
 			return fmt.Errorf("expected at least 1 param for newPayload")
 		}
-		var executionPayload ExecutionPayload
-		if err := json.Unmarshal(requestParams.Params[0], &executionPayload); err != nil {
-			return err
-		}
-		params = append(params, &executionPayload)
 	default:
+		params.SlotStage = Unknown
 	}
 	*req = JSONRPCRequest{
 		JSONRPC: msg.JSONRPC,

@@ -6,7 +6,6 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
 	"net"
 	"net/http"
@@ -45,8 +44,8 @@ type ProxyEntry struct {
 
 // BeaconEntry consists of a URL from a beacon client and latest timestamp recorded
 type BeaconEntry struct {
-	Addr      string
-	Timestamp uint64
+	Addr     string
+	LastSeen uint64
 }
 
 // ProxyServiceOpts contains options for the ProxyService
@@ -61,11 +60,12 @@ type ProxyServiceOpts struct {
 
 // ProxyService is a service that proxies requests from beacon node to builders
 type ProxyService struct {
-	listenAddr      string
-	srv             *http.Server
-	builderEntries  []*ProxyEntry
-	proxyEntries    []*ProxyEntry
-	bestBeaconEntry *BeaconEntry
+	listenAddr     string
+	srv            *http.Server
+	builderEntries []*ProxyEntry
+	proxyEntries   []*ProxyEntry
+
+	stageManager *StateManager
 
 	log *logrus.Entry
 	mu  sync.Mutex
@@ -148,6 +148,9 @@ func getIDClaim(tokenStr string) string {
 }
 
 func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
+	p.mu.Lock()
+	defer p.mu.Unlock()
+
 	// return OK for all GET requests, used for debug
 	if req.Method == http.MethodGet {
 		w.WriteHeader(http.StatusOK)
@@ -164,14 +167,28 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 
 	log := p.log.WithFields(getLogFieldsFromRequest(req))
 	remoteHost := getRemoteHost(req)
-	requestJSON, err := p.checkBeaconRequest(log, bodyBytes, remoteHost)
+	requestJSON, err := p.getBeaconRequest(log, bodyBytes)
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
 
-	if p.shouldFilterRequest(remoteHost, requestJSON.Method) {
+	// initialize manager only when not new_payload request arrived
+	// it is safe because for the new_payload requests always forwards
+	// Unknown should be filtered too because it's not engine-api requests
+	if p.stageManager == nil && requestJSON.Params.SlotStage != Unknown && requestJSON.Params.SlotStage != Payload {
+		p.stageManager = InitializeStateManager(requestJSON.Params.SlotStage, &BeaconEntry{
+			Addr:     remoteHost,
+			LastSeen: uint64(time.Now().Unix()),
+		})
+		p.log.WithFields(logrus.Fields{
+			"last_seen": p.stageManager.entry.LastSeen,
+		}).Infoln("State manager initialized")
+	}
+
+	if p.shouldFilterRequest(remoteHost, requestJSON.Method, requestJSON.Params) {
 		log.Debug("request filtered from beacon node proxy is not synced to")
+		p.log.WithField("remoteHost", remoteHost).Debug("request filtered from beacon node proxy is not synced to")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
@@ -291,7 +308,7 @@ func (p *ProxyService) callProxies(req *http.Request, bodyBytes []byte) {
 	}
 }
 
-func (p *ProxyService) checkBeaconRequest(log *logrus.Entry, bodyBytes []byte, remoteHost string) (JSONRPCRequest, error) {
+func (p *ProxyService) getBeaconRequest(log *logrus.Entry, bodyBytes []byte) (JSONRPCRequest, error) {
 	var requestJSON JSONRPCRequest
 	var batchRequestJSON []JSONRPCRequest
 	err := json.Unmarshal(bodyBytes, &requestJSON)
@@ -312,62 +329,59 @@ func (p *ProxyService) checkBeaconRequest(log *logrus.Entry, bodyBytes []byte, r
 		"id":     requestJSON.ID,
 	}).Debug("request received from beacon node")
 
-	p.updateBestBeaconEntry(log, requestJSON, remoteHost)
-
 	return requestJSON, nil
 }
 
-func (p *ProxyService) shouldFilterRequest(remoteHost, method string) bool {
+func (p *ProxyService) shouldFilterRequest(remoteHost, method string, params PayloadParams) bool {
 	if !isEngineRequest(method) {
 		return true
 	}
 
-	if !strings.HasPrefix(method, newPayload) && !p.isFromBestBeaconEntry(remoteHost) {
-		return true
+	// always forward new_payload requests
+	if strings.HasPrefix(method, newPayload) {
+		return false
 	}
 
-	return false
-}
+	stage := p.stageManager.CurrentSlotStage()
+	entry := p.stageManager.Entry()
 
-func (p *ProxyService) isFromBestBeaconEntry(remoteHost string) bool {
-	p.mu.Lock()
-	defer p.mu.Unlock()
-	return p.bestBeaconEntry != nil && p.bestBeaconEntry.Addr == remoteHost
-}
+	// accept host which arrives first and forward
+	if stage == FCUOpen && params.SlotStage == FCUOpen {
+		p.stageManager.NextSlotStage()
 
-// updates for which the proxy / beacon should sync to
-func (p *ProxyService) updateBestBeaconEntry(log *logrus.Entry, request JSONRPCRequest, requestAddr string) {
-	p.mu.Lock()
-	defer p.mu.Unlock()
+		prevHost := entry.Addr
+		entry.Addr = remoteHost
+		entry.LastSeen = uint64(time.Now().Unix())
+		p.stageManager.UpdateEntry(entry)
 
-	if p.bestBeaconEntry == nil {
-		log.Info("request received from beacon node")
-		p.bestBeaconEntry = &BeaconEntry{Addr: requestAddr, Timestamp: 0}
+		p.log.WithFields(logrus.Fields{
+			"last_seen": entry.LastSeen,
+			"prev_host": prevHost,
+			"host":      entry.Addr,
+		}).Infoln("Update CL entry. Forwarding Forkchoice_update: open_stage")
+
+		return false
 	}
 
-	// update to compare differences in timestamp
-	var timestamp uint64
-	if strings.HasPrefix(request.Method, fcU) {
-		switch v := request.Params[1].(type) {
-		case *PayloadAttributes:
-			timestamp = v.Timestamp
+	// we should wait the same host entry, which was first before, for the forkchoice_update with payloadAttributes
+	if stage == FCUClose && params.SlotStage == FCUClose {
+		// don't forward for different CL
+		if entry.Addr != remoteHost {
+			return true
 		}
-	} else if strings.HasPrefix(request.Method, newPayload) {
-		switch v := request.Params[0].(type) {
-		case *ExecutionPayload:
-			timestamp = v.Timestamp
-		}
+
+		// forward request and start from forkchoice_update
+		p.stageManager.NextSlotStage()
+
+		p.log.WithFields(logrus.Fields{
+			"last_seen": entry.LastSeen,
+			"host":      entry.Addr,
+		}).Infoln("Forwarding Forkchoice_update: close_stage")
+
+		return false
 	}
 
-	if p.bestBeaconEntry.Timestamp < timestamp {
-		log.WithFields(logrus.Fields{
-			"oldTimestamp": p.bestBeaconEntry.Timestamp,
-			"oldAddr":      p.bestBeaconEntry.Addr,
-			"newTimestamp": timestamp,
-			"newAddr":      requestAddr,
-		}).Info(fmt.Sprintf("new timestamp from %s request received from beacon node", request.Method))
-		p.bestBeaconEntry = &BeaconEntry{Timestamp: timestamp, Addr: requestAddr}
-	}
+	return true
 }
 
 func (p *ProxyService) maybeLogReponseDifferences(method string, primaryResponse BuilderResponse, responses []BuilderResponse) {
