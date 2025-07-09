@@ -44,8 +44,8 @@ type ProxyEntry struct {
 
 // BeaconEntry consists of a URL from a beacon client and latest timestamp recorded
 type BeaconEntry struct {
-	Addr     string
-	LastSeen uint64
+	Addr      string
+	UpdatedAt uint64
 }
 
 // ProxyServiceOpts contains options for the ProxyService
@@ -65,7 +65,7 @@ type ProxyService struct {
 	builderEntries []*ProxyEntry
 	proxyEntries   []*ProxyEntry
 
-	stageManager *StateManager
+	stateManager *StateManager
 
 	log *logrus.Entry
 	mu  sync.Mutex
@@ -173,16 +173,14 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	// initialize manager only when not new_payload request arrived
-	// it is safe because for the new_payload requests always forwards
-	// Unknown should be filtered too because it's not engine-api requests
-	if p.stageManager == nil && requestJSON.Params.SlotStage != Unknown && requestJSON.Params.SlotStage != Payload {
-		p.stageManager = InitializeStateManager(requestJSON.Params.SlotStage, &BeaconEntry{
-			Addr:     remoteHost,
-			LastSeen: uint64(time.Now().Unix()),
+	// initialize manager only when Forkchoice_update arrived
+	if p.stateManager == nil && (requestJSON.Params.SlotStage == FCUOpen || requestJSON.Params.SlotStage == FCUClose) {
+		p.stateManager = InitializeStateManager(requestJSON.Params.SlotStage, &BeaconEntry{
+			Addr:      remoteHost,
+			UpdatedAt: uint64(time.Now().Unix()),
 		})
 		p.log.WithFields(logrus.Fields{
-			"last_seen": p.stageManager.entry.LastSeen,
+			"updated_at": p.stateManager.entry.UpdatedAt,
 		}).Infoln("State manager initialized")
 	}
 
@@ -192,6 +190,12 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		return
 	}
+
+	p.log.WithFields(logrus.Fields{
+		// "last_seen": p.stageManager.entry.LastSeen,
+		// "host":      p.stageManager.entry.LastSeen,
+		"method": requestJSON.Method,
+	}).Infoln("Forwarding request")
 
 	// return if request is cancelled or timed out
 	err = req.Context().Err()
@@ -337,27 +341,26 @@ func (p *ProxyService) shouldFilterRequest(remoteHost, method string, params Pay
 		return true
 	}
 
-	// always forward new_payload requests
-	if strings.HasPrefix(method, newPayload) {
+	// safetely forward all other requests from any CL
+	if !strings.Contains(method, fcU) {
 		return false
 	}
 
-	stage := p.stageManager.CurrentSlotStage()
-	entry := p.stageManager.Entry()
+	stage := p.stateManager.CurrentSlotStage()
+	entry := p.stateManager.Entry()
 
 	// accept host which arrives first and forward
 	if stage == FCUOpen && params.SlotStage == FCUOpen {
-		p.stageManager.NextSlotStage()
+		p.stateManager.NextSlotStage()
 
 		prevHost := entry.Addr
 		entry.Addr = remoteHost
-		entry.LastSeen = uint64(time.Now().Unix())
-		p.stageManager.UpdateEntry(entry)
+		entry.UpdatedAt = uint64(time.Now().Unix())
 
 		p.log.WithFields(logrus.Fields{
-			"last_seen": entry.LastSeen,
-			"prev_host": prevHost,
-			"host":      entry.Addr,
+			"updated_at": entry.UpdatedAt,
+			"prev_host":  prevHost,
+			"host":       entry.Addr,
 		}).Infoln("Update CL entry. Forwarding Forkchoice_update: open_stage")
 
 		return false
@@ -370,12 +373,13 @@ func (p *ProxyService) shouldFilterRequest(remoteHost, method string, params Pay
 			return true
 		}
 
-		// forward request and start from forkchoice_update
-		p.stageManager.NextSlotStage()
+		// forward request and start from forkchoice_update open_stage
+		p.stateManager.NextSlotStage()
+		entry.UpdatedAt = uint64(time.Now().Unix())
 
 		p.log.WithFields(logrus.Fields{
-			"last_seen": entry.LastSeen,
-			"host":      entry.Addr,
+			"updated_at": entry.UpdatedAt,
+			"host":       entry.Addr,
 		}).Infoln("Forwarding Forkchoice_update: close_stage")
 
 		return false

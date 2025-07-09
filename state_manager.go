@@ -37,7 +37,3 @@ func (m *StateManager) NextSlotStage() {
 func (m *StateManager) Entry() *BeaconEntry {
 	return m.entry
 }
-
-func (m *StateManager) UpdateEntry(entry *BeaconEntry) {
-	m.entry = entry
-}

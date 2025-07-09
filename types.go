@@ -2,15 +2,10 @@ package main
 
 import (
 	"encoding/json"
-	"errors"
 	"fmt"
 	"strings"
 
 	"github.com/ethereum/go-ethereum/beacon/engine"
-)
-
-var (
-	ErrUnsupportedMethod = errors.New("unsupported method")
 )
 
 type JSONRPCRequest struct {
