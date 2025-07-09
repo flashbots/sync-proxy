@@ -184,17 +184,20 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		}).Infoln("State manager initialized")
 	}
 
+	meta, _ := json.Marshal(requestJSON.Params)
+
 	if p.shouldFilterRequest(remoteHost, requestJSON.Method, requestJSON.Params) {
 		log.Debug("request filtered from beacon node proxy is not synced to")
 		p.log.WithField("remoteHost", remoteHost).Debug("request filtered from beacon node proxy is not synced to")
+		p.log.WithFields(logrus.Fields{"id": requestJSON.ID, "method": requestJSON.Method, "meta": string(meta)}).Infoln("Blocking request")
 		w.WriteHeader(http.StatusOK)
 		return
 	}
 
 	p.log.WithFields(logrus.Fields{
-		// "last_seen": p.stageManager.entry.LastSeen,
-		// "host":      p.stageManager.entry.LastSeen,
+		"id":     requestJSON.ID,
 		"method": requestJSON.Method,
+		"meta":   string(meta),
 	}).Infoln("Forwarding request")
 
 	// return if request is cancelled or timed out

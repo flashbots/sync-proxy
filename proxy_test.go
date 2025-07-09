@@ -2,13 +2,16 @@ package main
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"testing"
 	"time"
 
+	"github.com/ethereum/go-ethereum/common"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/require"
 )
@@ -266,9 +269,18 @@ func TestBuilders(t *testing.T) {
 func TestUpdateBestBeaconNode(t *testing.T) {
 	backend := newTestBackend(t, 1, 0, time.Second, time.Second)
 
+	log := logrus.WithContext(context.Background())
+
 	t.Run("should initialize stateManager", func(t *testing.T) {
 
-		backend.request(t, []byte(mockForkchoiceRequest), from)
+		data := []byte(mockForkchoiceRequest)
+		backend.request(t, data, from)
+
+		request, err := backend.proxyService.getBeaconRequest(log, data)
+		require.NoError(t, err)
+
+		fmt.Println("data:", request)
+
 		require.NotNil(t, backend.proxyService.stateManager.Entry())
 	})
 
@@ -277,13 +289,32 @@ func TestUpdateBestBeaconNode(t *testing.T) {
 	time.Sleep(time.Second)
 
 	t.Run("testing new_payload. LastSeen should be the same as we shouldn't update entry values", func(t *testing.T) {
-		backend.request(t, []byte(mockNewPayloadRequest), from)
+		data := []byte(mockNewPayloadRequest)
+		backend.request(t, data, from)
+
+		request, err := backend.proxyService.getBeaconRequest(log, data)
+		require.NoError(t, err)
+
+		require.Equal(t, *request.Params.ParentBlockHash, common.HexToHash("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a"))
+		require.Equal(t, *request.Params.BlockNumber, uint64(1))
+		require.Equal(t, *request.Params.BlockHash, common.HexToHash("0x3559e851470f6e7bbed1db474980683e8c315bfce99b2a6ef47c057c04de7858"))
+
 		require.Equal(t, backend.proxyService.stateManager.entry.UpdatedAt, updatedAt)
 	})
 
 	t.Run("testing Forkchoice_update with attributes. UpdatedAt should be modified", func(t *testing.T) {
+		data := []byte(mockForkchoiceRequestWithPayloadAttributesV1)
+		backend.request(t, data, from)
 
-		backend.request(t, []byte(mockForkchoiceRequestWithPayloadAttributesV1), from)
+		request, err := backend.proxyService.getBeaconRequest(log, data)
+		require.NoError(t, err)
+
+		require.Equal(t, *request.Params.HeadBlockHash, common.HexToHash("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a"))
+		require.Equal(t, *request.Params.FinilizedBlockHash, common.HexToHash("0x0000000000000000000000000000000000000000000000000000000000000000"))
+		require.Equal(t, *request.Params.SafeBlockHash, common.HexToHash("0x3b8fb240d288781d4aac94d3fd16809ee413bc99294a085798a589dae51ddd4a"))
+
+		fmt.Println("data:", request)
+
 		require.True(t, backend.proxyService.stateManager.entry.UpdatedAt > updatedAt)
 	})
 }

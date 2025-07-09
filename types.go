@@ -6,6 +6,7 @@ import (
 	"strings"
 
 	"github.com/ethereum/go-ethereum/beacon/engine"
+	"github.com/ethereum/go-ethereum/common"
 )
 
 type JSONRPCRequest struct {
@@ -16,7 +17,17 @@ type JSONRPCRequest struct {
 }
 
 type PayloadParams struct {
-	SlotStage SlotStage
+	SlotStage SlotStage `json:"-"`
+
+	// variatic params depended on the type of request
+	HeadBlockHash             *common.Hash `json:"headBlockHash,omitempty"`
+	FinilizedBlockHash        *common.Hash `json:"finilizedBlockHash,omitempty"`
+	SafeBlockHash             *common.Hash `json:"safeBlockHash,omitempty"`
+	BlockHash                 *common.Hash `json:"blockHash,omitempty"`
+	ParentBlockHash           *common.Hash `json:"parentBlockHash,omitempty"`
+	BlockNumber               *uint64      `json:"blockNumber,omitempty"`
+	ForkchoiceUpdateTimestamp *uint64      `json:"forkchoiceUpdateTimestamp,omitempty"`
+	NewPayloadTimestamp       *uint64      `json:"newPayloadTimestamp,omitempty"`
 }
 
 type JSONRPCResponse struct {
@@ -62,7 +73,22 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 			return fmt.Errorf("expected at least 2 params for forkchoiceUpdated")
 		}
 
+		var state engine.ForkchoiceStateV1
+		if err := json.Unmarshal(requestParams.Params[0], &state); err != nil {
+			return fmt.Errorf("failed to unmarshal forkchoiceStateV1 %w", err)
+		}
+
+		params.HeadBlockHash = &state.HeadBlockHash
+		params.FinilizedBlockHash = &state.FinalizedBlockHash
+		params.SafeBlockHash = &state.SafeBlockHash
+
 		if string(requestParams.Params[1]) != "null" {
+			var attrs engine.PayloadAttributes
+			if err := json.Unmarshal(requestParams.Params[1], &attrs); err != nil {
+				return fmt.Errorf("failed to unmarshal payloadAttributes %w", err)
+			}
+
+			params.ForkchoiceUpdateTimestamp = &attrs.Timestamp
 			params.SlotStage = FCUClose
 		}
 
@@ -72,9 +98,20 @@ func (req *JSONRPCRequest) UnmarshalJSON(data []byte) error {
 		if err := json.Unmarshal(data, &requestParams); err != nil {
 			return err
 		}
+
 		if len(requestParams.Params) < 1 {
 			return fmt.Errorf("expected at least 1 param for newPayload")
 		}
+
+		var data ExecutionPayload
+		if err := json.Unmarshal(requestParams.Params[0], &data); err != nil {
+			return fmt.Errorf("failed to unmarshal executionPayload %w", err)
+		}
+
+		params.BlockHash = &data.BlockHash
+		params.NewPayloadTimestamp = &data.Timestamp
+		params.ParentBlockHash = &data.ParentHash
+		params.BlockNumber = &data.Number
 	default:
 		params.SlotStage = Unknown
 	}
