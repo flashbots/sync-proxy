@@ -187,7 +187,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	meta, _ := json.Marshal(requestJSON.Params)
 
 	if p.stateManager != nil {
-		p.log.Infoln("Current state manager stage:", p.stateManager.stage.String())
+		p.log.Infoln("Current state manager stage:", p.stateManager.stage.String(), "selected host", remoteHost)
 	}
 	if p.shouldFilterRequest(remoteHost, requestJSON.Method, requestJSON.Params) {
 		log.Debug("request filtered from beacon node proxy is not synced to")
@@ -217,7 +217,9 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	now := time.Now()
 	builderResponse, err := p.callBuilders(req, requestJSON, bodyBytes)
+	p.log.Infoln("Call builders request latency_ms", time.Since(now).Milliseconds())
 	p.callProxies(req, bodyBytes)
 
 	if err != nil {
