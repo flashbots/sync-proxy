@@ -9,6 +9,22 @@ const (
 	Unknown
 )
 
+func (s SlotStage) String() string {
+	var str string
+	switch s {
+	case FCUOpen:
+		str = "Forkchoice_update_Open"
+	case FCUClose:
+		str = "Forkchoice_update_Close"
+	case Payload:
+		str = "New_Payload"
+	case Unknown:
+		str = "Unknown"
+	}
+
+	return str
+}
+
 type StateManager struct {
 	entry *BeaconEntry
 	stage SlotStage
