@@ -179,7 +179,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 			Addr:      remoteHost,
 			UpdatedAt: uint64(time.Now().Unix()),
 		})
-		p.log.WithFields(logrus.Fields{
+		log.WithFields(logrus.Fields{
 			"updated_at": p.stateManager.entry.UpdatedAt,
 		}).Infoln("State manager initialized")
 	}
@@ -187,12 +187,11 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	meta, _ := json.Marshal(requestJSON.Params)
 
 	if p.stateManager != nil {
-		p.log.Infoln("Current state manager stage:", p.stateManager.stage.String(), "selected host", remoteHost)
+		log.Infoln("Current state manager stage:", p.stateManager.stage.String(), "selected host", remoteHost)
 	}
 	if p.shouldFilterRequest(remoteHost, requestJSON.Method, requestJSON.Params) {
 		log.Debug("request filtered from beacon node proxy is not synced to")
-		p.log.WithField("remoteHost", remoteHost).Debug("request filtered from beacon node proxy is not synced to")
-		p.log.WithFields(logrus.Fields{
+		log.WithFields(logrus.Fields{
 			"id":            requestJSON.ID,
 			"method":        requestJSON.Method,
 			"request_stage": requestJSON.Params.SlotStage.String(),
@@ -202,7 +201,7 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
-	p.log.WithFields(logrus.Fields{
+	log.WithFields(logrus.Fields{
 		"id":            requestJSON.ID,
 		"method":        requestJSON.Method,
 		"request_stage": requestJSON.Params.SlotStage.String(),
