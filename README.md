@@ -28,6 +28,14 @@ To run with multiple EL endpoins:
 ./sync-proxy -builders="localhost:8551,localhost:8552"
 ```
 
+### Notable flags
+
+- `-request-timeout` / `-proxy-request-timeout` (ms): bound each forwarded request end to end (connection, response headers and body). A backend that does not answer within the timeout is treated as failed and the proxy falls back to the next builder.
+- `-mirror-mode` (env `MIRROR_MODE`): acknowledge every request immediately with an empty `200` and forward to the builders asynchronously. Intended for deployments behind an nginx `mirror`, where the caller discards responses anyway — this frees the caller instead of blocking on the slowest backend. Requests are still parsed, filtered and (bounded by `-request-timeout`) awaited internally for logging and response-divergence detection.
+- `-metrics-addr` (env `METRICS_ADDR`): listen address for a Prometheus `/metrics` endpoint on a separate listener (empty = disabled). Exposes:
+  - `syncproxy_forwards_total{method, backend, result}` — forwarded requests; `result` is `success` (backend answered 2xx — i.e. the EL demonstrably received and accepted the call, also in mirror mode), `http_error` (non-2xx answer) or `error` (transport failure or timeout).
+  - `syncproxy_forward_duration_seconds{method, backend}` — forward latency histogram.
+
 ### Nginx
 
 The sync proxy can also be used with nginx, with requests proxied from the beacon node to a local execution client and mirrored to multiple sync proxies.

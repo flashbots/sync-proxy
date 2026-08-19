@@ -235,13 +235,16 @@ func (p *ProxyService) callBuilders(req *http.Request, requestJSON JSONRPCReques
 		go func(entry *ProxyEntry) {
 			defer wg.Done()
 			url := entry.URL
+			start := time.Now()
 			resp, cancel, err := SendProxyRequest(req, entry, bodyBytes)
 			if err != nil {
+				forwardsTotal.WithLabelValues(requestJSON.Method, url.String(), "error").Inc()
 				log.WithError(err).WithField("url", url.String()).Error("error sending request to builder")
 				return
 			}
 			defer cancel()
 			defer resp.Body.Close()
+			observeForward(requestJSON.Method, url.String(), resp.StatusCode, start)
 
 			responseBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
