@@ -57,6 +57,7 @@ type ProxyServiceOpts struct {
 	BuilderTimeout time.Duration
 	Proxies        []*url.URL
 	ProxyTimeout   time.Duration
+	MirrorMode     bool
 	Log            *logrus.Entry
 }
 
@@ -67,6 +68,7 @@ type ProxyService struct {
 	builderEntries  []*ProxyEntry
 	proxyEntries    []*ProxyEntry
 	bestBeaconEntry *BeaconEntry
+	mirrorMode      bool
 
 	log *logrus.Entry
 	mu  sync.Mutex
@@ -94,6 +96,7 @@ func NewProxyService(opts ProxyServiceOpts) (*ProxyService, error) {
 		listenAddr:     opts.ListenAddr,
 		builderEntries: builderEntries,
 		proxyEntries:   proxyEntries,
+		mirrorMode:     opts.MirrorMode,
 		log:            opts.Log,
 	}, nil
 }
@@ -184,6 +187,13 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 		return
 	}
 
+	if p.mirrorMode {
+		p.mirrorToBuilders(req, requestJSON, bodyBytes)
+		p.callProxies(req, bodyBytes)
+		w.WriteHeader(http.StatusOK)
+		return
+	}
+
 	builderResponse, err := p.callBuilders(req, requestJSON, bodyBytes)
 	p.callProxies(req, bodyBytes)
 
@@ -195,6 +205,20 @@ func (p *ProxyService) ServeHTTP(w http.ResponseWriter, req *http.Request) {
 	copyHeader(w.Header(), builderResponse.Header)
 	w.WriteHeader(builderResponse.StatusCode)
 	io.Copy(w, io.NopCloser(bytes.NewBuffer(builderResponse.Body)))
+}
+
+// mirrorToBuilders forwards the request to the builders without waiting for
+// the responses. The inbound request is cloned before the handler returns,
+// since *http.Request must not be used after ServeHTTP completes. Responses
+// are still awaited inside callBuilders (bounded by the builder timeout) for
+// logging and divergence detection; only the reply to the caller changes.
+func (p *ProxyService) mirrorToBuilders(req *http.Request, requestJSON JSONRPCRequest, bodyBytes []byte) {
+	detachedReq := req.Clone(context.Background())
+	go func() {
+		if _, err := p.callBuilders(detachedReq, requestJSON, bodyBytes); err != nil {
+			p.log.WithError(err).WithField("method", requestJSON.Method).Error("mirror-mode forward failed")
+		}
+	}()
 }
 
 func (p *ProxyService) callBuilders(req *http.Request, requestJSON JSONRPCRequest, bodyBytes []byte) (BuilderResponse, error) {

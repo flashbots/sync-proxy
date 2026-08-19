@@ -19,6 +19,7 @@ var (
 	defaultLogJSON    = os.Getenv("LOG_JSON") != ""
 	defaultListenAddr = getEnv("PROXY_LISTEN_ADDR", "localhost:25590")
 	defaultTimeoutMs  = getEnvInt("BUILDER_TIMEOUT_MS", 2000) // timeout for all the requests to the builders
+	defaultMirrorMode = os.Getenv("MIRROR_MODE") != ""
 
 	// Flags
 	logJSON          = flag.Bool("json", defaultLogJSON, "log in JSON format instead of text")
@@ -28,6 +29,7 @@ var (
 	builderTimeoutMs = flag.Int("request-timeout", defaultTimeoutMs, "timeout for requests to a builder [ms]")
 	proxyURLs        = flag.String("proxies", "", "proxy urls - other proxies to forward BN requests to (scheme://host)")
 	proxyTimeoutMs   = flag.Int("proxy-request-timeout", defaultTimeoutMs, "timeout for redundant beacon node requests to another proxy [ms]")
+	mirrorMode       = flag.Bool("mirror-mode", defaultMirrorMode, "acknowledge requests immediately with an empty 200 and forward to builders asynchronously (for use behind an nginx mirror)")
 )
 
 var log = logrus.WithField("module", "sync-proxy")
@@ -69,12 +71,17 @@ func main() {
 	proxyTimeout := time.Duration(*proxyTimeoutMs) * time.Millisecond
 
 	// Create a new proxy service.
+	if *mirrorMode {
+		log.Info("mirror mode enabled: acknowledging requests with an empty 200 and forwarding asynchronously")
+	}
+
 	opts := ProxyServiceOpts{
 		ListenAddr:     *listenAddr,
 		Builders:       builders,
 		BuilderTimeout: builderTimeout,
 		Proxies:        proxies,
 		ProxyTimeout:   proxyTimeout,
+		MirrorMode:     *mirrorMode,
 		Log:            log,
 	}
 
