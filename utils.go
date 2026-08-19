@@ -10,23 +10,36 @@ import (
 	"strings"
 )
 
-func BuildProxyRequest(req *http.Request, proxy *httputil.ReverseProxy, bodyBytes []byte) *http.Request {
-	// Copy and redirect request to EL endpoint
-	proxyReq := req.Clone(context.Background())
+func BuildProxyRequest(ctx context.Context, req *http.Request, proxy *httputil.ReverseProxy, bodyBytes []byte) *http.Request {
+	// Copy and redirect request to EL endpoint. The context is detached from the
+	// inbound request on purpose (client cancellation must not abort the forward)
+	// but bounded by the configured timeout.
+	proxyReq := req.Clone(ctx)
 	appendHostToXForwardHeader(proxyReq.Header, req.URL.Host)
 	proxyReq.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
 	proxy.Director(proxyReq)
 	return proxyReq
 }
-func SendProxyRequest(req *http.Request, proxy *httputil.ReverseProxy, bodyBytes []byte) (*http.Response, error) {
-	proxyReq := BuildProxyRequest(req, proxy, bodyBytes)
-	resp, err := proxy.Transport.RoundTrip(proxyReq)
-	if err != nil {
-		return nil, err
+
+// SendProxyRequest forwards the request to the entry's backend, bounded by the
+// entry's timeout. On success the caller must close resp.Body and then call
+// cancel once done reading it.
+func SendProxyRequest(req *http.Request, entry *ProxyEntry, bodyBytes []byte) (*http.Response, context.CancelFunc, error) {
+	ctx := context.Background()
+	cancel := context.CancelFunc(func() {})
+	if entry.Timeout > 0 {
+		ctx, cancel = context.WithTimeout(ctx, entry.Timeout)
 	}
 
-	return resp, nil
+	proxyReq := BuildProxyRequest(ctx, req, entry.Proxy, bodyBytes)
+	resp, err := entry.Proxy.Transport.RoundTrip(proxyReq)
+	if err != nil {
+		cancel()
+		return nil, nil, err
+	}
+
+	return resp, cancel, nil
 }
 
 func copyHeader(dst, src http.Header) {

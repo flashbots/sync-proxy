@@ -39,8 +39,9 @@ type BuilderResponse struct {
 
 // ProxyEntry is an entry consisting of a URL and a proxy
 type ProxyEntry struct {
-	URL   *url.URL
-	Proxy *httputil.ReverseProxy
+	URL     *url.URL
+	Proxy   *httputil.ReverseProxy
+	Timeout time.Duration
 }
 
 // BeaconEntry consists of a URL from a beacon client and latest timestamp recorded
@@ -210,24 +211,23 @@ func (p *ProxyService) callBuilders(req *http.Request, requestJSON JSONRPCReques
 		go func(entry *ProxyEntry) {
 			defer wg.Done()
 			url := entry.URL
-			proxy := entry.Proxy
-			resp, err := SendProxyRequest(req, proxy, bodyBytes)
+			resp, cancel, err := SendProxyRequest(req, entry, bodyBytes)
 			if err != nil {
 				log.WithError(err).WithField("url", url.String()).Error("error sending request to builder")
 				return
 			}
+			defer cancel()
+			defer resp.Body.Close()
 
-			reader := resp.Body
-			responseBytes, err := io.ReadAll(reader)
+			responseBytes, err := io.ReadAll(resp.Body)
 			if err != nil {
 				p.log.WithError(err).Error("failed to read response body")
 				return
 			}
-			defer resp.Body.Close()
 
 			var uncompressedResponseBytes []byte
 			if !resp.Uncompressed && resp.Header.Get("Content-Encoding") == "gzip" {
-				reader, err = gzip.NewReader(io.NopCloser(bytes.NewBuffer(responseBytes)))
+				reader, err := gzip.NewReader(io.NopCloser(bytes.NewBuffer(responseBytes)))
 				if err != nil {
 					p.log.WithError(err).Error("failed to decompress response body")
 					return
@@ -282,11 +282,14 @@ func (p *ProxyService) callProxies(req *http.Request, bodyBytes []byte) {
 	// call other proxies to forward requests from other beacon nodes
 	for _, entry := range p.proxyEntries {
 		go func(entry *ProxyEntry) {
-			_, err := SendProxyRequest(req, entry.Proxy, bodyBytes)
+			resp, cancel, err := SendProxyRequest(req, entry, bodyBytes)
 			if err != nil {
 				log.WithError(err).WithField("url", entry.URL.String()).Error("error sending request to proxy")
 				return
 			}
+			defer cancel()
+			_, _ = io.Copy(io.Discard, resp.Body)
+			resp.Body.Close()
 		}(entry)
 	}
 }
@@ -422,6 +425,7 @@ func buildProxyEntry(proxyURL *url.URL, timeout time.Duration) ProxyEntry {
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
+		ResponseHeaderTimeout: timeout,
 	}
-	return ProxyEntry{Proxy: proxy, URL: proxyURL}
+	return ProxyEntry{Proxy: proxy, URL: proxyURL, Timeout: timeout}
 }
