@@ -26,6 +26,7 @@ type mockServer struct {
 	// Used to count each engine made to the service, either if it fails or not, for each method
 	mu           sync.Mutex
 	requestCount map[string]int
+	lastHeaders  http.Header
 
 	// Responses placeholders that can be overridden
 	Response []byte
@@ -78,6 +79,7 @@ func (m *mockServer) newTestMiddleware(next http.Handler) http.Handler {
 			err = json.Unmarshal(bodyBytes, &req)
 			require.NoError(m.t, err)
 			m.requestCount[req.Method]++
+			m.lastHeaders = r.Header.Clone()
 
 			r.Body = io.NopCloser(bytes.NewBuffer(bodyBytes))
 
@@ -98,4 +100,11 @@ func (m *mockServer) GetRequestCount(method string) int {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	return m.requestCount[method]
+}
+
+// GetLastHeaders returns the headers of the most recent request
+func (m *mockServer) GetLastHeaders() http.Header {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.lastHeaders
 }

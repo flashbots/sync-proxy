@@ -289,6 +289,53 @@ func TestRequestTimeouts(t *testing.T) {
 	})
 }
 
+func TestMirrorMode(t *testing.T) {
+	t.Run("mirror mode should ack immediately with empty body and still forward", func(t *testing.T) {
+		backend := newTestBackend(t, 1, 0, time.Second, time.Second)
+		backend.proxyService.mirrorMode = true
+
+		backend.builders[0].ResponseDelay = 300 * time.Millisecond
+
+		req, err := http.NewRequest(http.MethodPost, "/", bytes.NewReader([]byte(mockNewPayloadRequest)))
+		require.NoError(t, err)
+		req.RemoteAddr = from
+		req.Header.Set("Authorization", "Bearer test-token")
+		rr := httptest.NewRecorder()
+
+		start := time.Now()
+		backend.proxyService.ServeHTTP(rr, req)
+		require.Less(t, time.Since(start), 200*time.Millisecond, "ack must not wait for the builder")
+		require.Equal(t, http.StatusOK, rr.Code)
+		require.Equal(t, "", rr.Body.String())
+
+		// the forward still happens (async), with the original Authorization header
+		require.Eventually(t, func() bool {
+			return backend.builders[0].GetRequestCount(newPayloadPath) == 1
+		}, 2*time.Second, 10*time.Millisecond)
+		require.Equal(t, "Bearer test-token", backend.builders[0].GetLastHeaders().Get("Authorization"))
+	})
+
+	t.Run("mirror mode off should still return builder response", func(t *testing.T) {
+		backend := newTestBackend(t, 1, 0, time.Second, time.Second)
+
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
+		require.Equal(t, http.StatusOK, rr.Code)
+		require.Equal(t, mockNewPayloadResponseValid, rr.Body.String())
+	})
+
+	t.Run("mirror mode should still filter non-engine requests", func(t *testing.T) {
+		backend := newTestBackend(t, 1, 0, time.Second, time.Second)
+		backend.proxyService.mirrorMode = true
+
+		rr := backend.request(t, []byte(mockEthChainIDRequest), from)
+		require.Equal(t, http.StatusOK, rr.Code)
+		require.Equal(t, "", rr.Body.String())
+		// give any (incorrect) forward a chance to land, then assert none did
+		time.Sleep(100 * time.Millisecond)
+		require.Equal(t, 0, backend.builders[0].GetRequestCount("eth_chainId"))
+	})
+}
+
 func TestUpdateBestBeaconNode(t *testing.T) {
 	var data JSONRPCRequest
 	json.Unmarshal([]byte(mockForkchoiceRequestWithPayloadAttributesV1), &data)
