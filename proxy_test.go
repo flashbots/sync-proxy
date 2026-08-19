@@ -263,6 +263,32 @@ func TestBuilders(t *testing.T) {
 	})
 }
 
+func TestRequestTimeouts(t *testing.T) {
+	t.Run("slow builder response should time out and fall back to other builder", func(t *testing.T) {
+		backend := newTestBackend(t, 2, 0, 100*time.Millisecond, 100*time.Millisecond)
+
+		backend.builders[0].ResponseDelay = 500 * time.Millisecond
+		backend.builders[0].Response = []byte(mockNewPayloadResponseValid)
+		backend.builders[1].Response = []byte(mockNewPayloadResponseSyncing)
+
+		start := time.Now()
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
+		require.Less(t, time.Since(start), 400*time.Millisecond, "request should not wait for the slow builder")
+		require.Equal(t, http.StatusOK, rr.Code, rr.Body.String())
+		// fallback: response comes from the non-delayed secondary builder
+		require.Equal(t, mockNewPayloadResponseSyncing, rr.Body.String())
+	})
+
+	t.Run("all builders slow should return bad gateway", func(t *testing.T) {
+		backend := newTestBackend(t, 1, 0, 100*time.Millisecond, 100*time.Millisecond)
+
+		backend.builders[0].ResponseDelay = 500 * time.Millisecond
+
+		rr := backend.request(t, []byte(mockNewPayloadRequest), from)
+		require.Equal(t, http.StatusBadGateway, rr.Code)
+	})
+}
+
 func TestUpdateBestBeaconNode(t *testing.T) {
 	var data JSONRPCRequest
 	json.Unmarshal([]byte(mockForkchoiceRequestWithPayloadAttributesV1), &data)
