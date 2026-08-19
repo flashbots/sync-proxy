@@ -15,11 +15,12 @@ var (
 	version = "dev" // is set during build process
 
 	// Default values
-	defaultLogLevel   = getEnv("LOG_LEVEL", "info")
-	defaultLogJSON    = os.Getenv("LOG_JSON") != ""
-	defaultListenAddr = getEnv("PROXY_LISTEN_ADDR", "localhost:25590")
-	defaultTimeoutMs  = getEnvInt("BUILDER_TIMEOUT_MS", 2000) // timeout for all the requests to the builders
-	defaultMirrorMode = os.Getenv("MIRROR_MODE") != ""
+	defaultLogLevel    = getEnv("LOG_LEVEL", "info")
+	defaultLogJSON     = os.Getenv("LOG_JSON") != ""
+	defaultListenAddr  = getEnv("PROXY_LISTEN_ADDR", "localhost:25590")
+	defaultTimeoutMs   = getEnvInt("BUILDER_TIMEOUT_MS", 2000) // timeout for all the requests to the builders
+	defaultMirrorMode  = os.Getenv("MIRROR_MODE") != ""
+	defaultMetricsAddr = getEnv("METRICS_ADDR", "")
 
 	// Flags
 	logJSON          = flag.Bool("json", defaultLogJSON, "log in JSON format instead of text")
@@ -30,6 +31,7 @@ var (
 	proxyURLs        = flag.String("proxies", "", "proxy urls - other proxies to forward BN requests to (scheme://host)")
 	proxyTimeoutMs   = flag.Int("proxy-request-timeout", defaultTimeoutMs, "timeout for redundant beacon node requests to another proxy [ms]")
 	mirrorMode       = flag.Bool("mirror-mode", defaultMirrorMode, "acknowledge requests immediately with an empty 200 and forward to builders asynchronously (for use behind an nginx mirror)")
+	metricsAddr      = flag.String("metrics-addr", defaultMetricsAddr, "listen address for the Prometheus /metrics endpoint (empty = disabled)")
 )
 
 var log = logrus.WithField("module", "sync-proxy")
@@ -70,11 +72,11 @@ func main() {
 
 	proxyTimeout := time.Duration(*proxyTimeoutMs) * time.Millisecond
 
-	// Create a new proxy service.
 	if *mirrorMode {
 		log.Info("mirror mode enabled: acknowledging requests with an empty 200 and forwarding asynchronously")
 	}
 
+	// Create a new proxy service.
 	opts := ProxyServiceOpts{
 		ListenAddr:     *listenAddr,
 		Builders:       builders,
@@ -88,6 +90,13 @@ func main() {
 	proxyService, err := NewProxyService(opts)
 	if err != nil {
 		log.WithError(err).Fatal("failed creating the server")
+	}
+
+	if *metricsAddr != "" {
+		go func() {
+			log.Infof("metrics listening on %s", *metricsAddr)
+			log.WithError(StartMetricsServer(*metricsAddr)).Fatal("metrics server exited")
+		}()
 	}
 
 	log.Println("listening on", *listenAddr)
